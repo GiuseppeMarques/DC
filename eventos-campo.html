@@ -72,14 +72,14 @@
   nav button{flex:1;background:none;border:none;color:var(--sub);font-size:10px;padding:8px 2px;cursor:pointer;}
   nav button .ic{font-size:20px;display:block;margin-bottom:2px;}
   nav button.on{color:var(--acc);}
-  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-end;z-index:9999;}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-end;z-index:2000;}
   .modal-bg.on{display:flex;}
   .modal{background:var(--bg);width:100%;max-height:88vh;overflow-y:auto;border-radius:20px 20px 0 0;padding:18px 16px 30px;}
   .modal h2{margin:0 0 14px;font-size:17px;}
   .closebtn{float:right;background:var(--card2);border:none;color:var(--txt);width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;}
   .fileinput{display:none;}
   .toast{position:fixed;bottom:100px;left:16px;right:16px;background:var(--card2);border:1px solid var(--acc);
-    padding:12px 16px;border-radius:12px;text-align:center;font-size:13px;z-index:9999;display:none;}
+    padding:12px 16px;border-radius:12px;text-align:center;font-size:13px;z-index:2000;display:none;}
   h3.sec{font-size:13px;color:var(--sub);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px;}
 </style>
 </head>
@@ -827,6 +827,9 @@ document.getElementById('fileImportar').addEventListener('change', function(e){
       var pacote = JSON.parse(ev.target.result);
       db.ocorrencias = mergeArray(db.ocorrencias, pacote.ocorrencias||[]);
       db.equipes = mergeArray(db.equipes, pacote.equipes||[]);
+      db.trajetorias = (db.trajetorias||[]).concat((pacote.trajetorias||[]).filter(function(tr){
+        return !db.trajetorias.some(function(t){return t.id===tr.id;});
+      }));
       saveDB(db);
       renderMapa(); renderMissoes(); renderAvisos();
       toast('Importado ✅');
