@@ -923,9 +923,39 @@ function renderEquipesList(){
       '<div style="font-size:12px;color:var(--sub);margin-top:4px">Viatura: '+(e.viatura||'—')+'</div>'+
       '<div style="font-size:12px;color:var(--sub);margin-top:4px">'+capTxt+'</div>'+
       '<div style="font-size:11px;color:var(--sub);margin-top:4px">Últ. posição: '+(e.ultimaPosicao&&e.ultimaPosicao.dataHora?fmtData(e.ultimaPosicao.dataHora):'—')+'</div>'+
-      '<button class="btn sm" style="margin-top:8px" onclick="editarEquipe(\''+e.id+'\')">Editar</button></div>';
+      '<div style="margin-top:8px;display:flex;gap:6px">'+
+      '<button class="btn sm" onclick="editarEquipe(\''+e.id+'\')">Editar</button>'+
+      '<button class="btn sm warn" onclick="excluirEquipeUI(\''+e.id+'\')">🗑️ Excluir</button>'+
+      '</div></div>';
   }).join('');
 }
+window.excluirEquipeUI = function(id){
+  var eq = db.equipes.find(function(e){return e.id===id;});
+  if(!eq) return;
+  var ativos = 0;
+  db.ocorrencias.forEach(function(o){
+    ativos += (o.empenhos||[]).filter(function(e){return e.equipeNome===eq.nome && e.status!=='encerrado';}).length;
+  });
+  var msg = 'Excluir a equipe "'+eq.nome+'"?';
+  if(ativos>0) msg += '\n\nEla tem '+ativos+' missão(ões) ativa(s) — serão encerradas automaticamente antes da exclusão.';
+  if(!confirm(msg)) return;
+  if(ativos>0){
+    var agora = nowISO();
+    db.ocorrencias.forEach(function(o){
+      (o.empenhos||[]).forEach(function(e){
+        if(e.equipeNome===eq.nome && e.status!=='encerrado'){
+          e.status='encerrado'; e.horaEncerramento=agora; e.observacao=(e.observacao||'')+' [equipe excluída]';
+          o.atualizadoEm=agora;
+          o.historico.push({dataHora:agora, risco:o.risco, observacao:'Missão encerrada — equipe "'+eq.nome+'" excluída', autor:'quartel', origem:'quartel'});
+        }
+      });
+    });
+  }
+  db.equipes = db.equipes.filter(function(e){return e.id!==id;});
+  saveDB(db);
+  renderEquipesList(); buildMapaFiltroEquipeSelects(); renderMissoesBoard(); renderMapa(); renderTabelaOcorrencias();
+  toast('Equipe excluída');
+};
 window.editarEquipe = function(id){
   var e = db.equipes.find(function(x){return x.id===id;});
   document.getElementById('fEqNome').value = e.nome;
