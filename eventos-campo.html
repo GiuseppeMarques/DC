@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Eventos Campo</title>
+<link rel="manifest" href="./manifest-eventos-campo.json">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Eventos Campo">
+<meta name="theme-color" content="#FF6B00">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root{
+    --bg:#0E0E10; --card:#1C1C1E; --card2:#242427; --acc:#FF6B00; --acc2:#FF8A3D;
+    --txt:#F2F2F4; --sub:#9A9AA0; --verde:#34C759; --amar:#FF9F0A; --border:#2C2C2E;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--txt);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;overscroll-behavior:none;}
+  #app{display:flex;flex-direction:column;height:100vh;height:100dvh;}
+  header{padding:14px 16px 10px;flex:0 0 auto;}
+  header h1{font-size:19px;margin:0;font-weight:800;}
+  header .sub{font-size:12px;color:var(--sub);margin-top:2px;}
+  main{flex:1 1 auto;overflow-y:auto;padding:10px 16px 90px;}
+  .view{display:none;} .view.on{display:block;}
+  .card{background:var(--card);border-radius:16px;padding:16px;margin-bottom:12px;border:1px solid var(--border);}
+  .empty{text-align:center;padding:50px 20px;color:var(--sub);}
+  .empty .ico{font-size:38px;margin-bottom:10px;}
+  #map{width:100%;height:calc(100dvh - 200px);border-radius:14px;overflow:hidden;}
+  input[type=text],input[type=number],select,textarea{width:100%;background:var(--card2);border:1px solid var(--border);
+    border-radius:12px;padding:12px;color:var(--txt);font-size:14px;margin-bottom:10px;font-family:inherit;}
+  textarea{resize:vertical;min-height:60px;}
+  label.lbl{font-size:12px;color:var(--sub);display:block;margin-bottom:6px;}
+  .btn{border:none;border-radius:14px;padding:14px 10px;font-size:14px;font-weight:700;color:#fff;
+    background:var(--card2);cursor:pointer;width:100%;margin-bottom:10px;}
+  .btn.primary{background:var(--acc);}
+  .btn.ok{background:var(--verde);}
+  .btn.warn{background:var(--amar);color:#1C1C1E;}
+  .btn.sm{padding:10px;font-size:13px;margin-bottom:0;}
+  .btnrow{display:flex;gap:8px;}
+  .btnrow .btn{margin-bottom:0;}
+  .chiprow{display:flex;gap:8px;overflow-x:auto;margin-bottom:12px;padding-bottom:2px;}
+  .chip{flex:0 0 auto;padding:8px 14px;border-radius:999px;background:var(--card2);color:var(--sub);
+    font-size:13px;font-weight:600;border:1px solid var(--border);cursor:pointer;white-space:nowrap;}
+  .chip.on{background:var(--acc);color:#fff;border-color:var(--acc);}
+  .tipogrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px;}
+  .tipobtn{background:var(--card2);border:1px solid var(--border);border-radius:12px;padding:12px 6px;
+    text-align:center;cursor:pointer;color:var(--txt);}
+  .tipobtn.on{border-color:var(--acc);background:rgba(255,107,0,.15);}
+  .tipobtn .ic{font-size:22px;} .tipobtn .l{font-size:10px;color:var(--sub);margin-top:4px;}
+  .riscorow{display:flex;gap:6px;margin-bottom:12px;}
+  .riscobtn{flex:1;padding:14px 0;border-radius:10px;text-align:center;font-weight:800;font-size:15px;
+    cursor:pointer;border:2px solid var(--border);background:var(--card2);color:var(--sub);}
+  .riscobtn.on{color:#fff;border-color:transparent;}
+  .occcard{background:var(--card);border-radius:14px;padding:14px;margin-bottom:10px;border:1px solid var(--border);
+    border-left:5px solid var(--sub);cursor:pointer;}
+  .occcard .top{display:flex;justify-content:space-between;align-items:center;}
+  .occcard .tipo{font-weight:700;font-size:14px;}
+  .occcard .risco{font-size:12px;font-weight:800;padding:3px 10px;border-radius:999px;color:#fff;}
+  .occcard .meta{font-size:12px;color:var(--sub);margin-top:6px;}
+  .badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;background:var(--card2);
+    color:var(--sub);margin-right:6px;margin-top:6px;}
+  .tag{display:inline-block;padding:8px 12px;border-radius:10px;background:var(--card2);border:1px solid var(--border);
+    font-size:13px;margin:0 6px 6px 0;cursor:pointer;color:var(--sub);}
+  .tag.on{background:var(--acc);color:#fff;border-color:var(--acc);}
+  nav{flex:0 0 auto;display:flex;background:var(--card);border-top:1px solid var(--border);padding:6px 4px calc(6px + env(safe-area-inset-bottom));}
+  nav button{flex:1;background:none;border:none;color:var(--sub);font-size:10px;padding:8px 2px;cursor:pointer;}
+  nav button .ic{font-size:20px;display:block;margin-bottom:2px;}
+  nav button.on{color:var(--acc);}
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-end;z-index:50;}
+  .modal-bg.on{display:flex;}
+  .modal{background:var(--bg);width:100%;max-height:88vh;overflow-y:auto;border-radius:20px 20px 0 0;padding:18px 16px 30px;}
+  .modal h2{margin:0 0 14px;font-size:17px;}
+  .closebtn{float:right;background:var(--card2);border:none;color:var(--txt);width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;}
+  .fileinput{display:none;}
+  .toast{position:fixed;bottom:100px;left:16px;right:16px;background:var(--card2);border:1px solid var(--acc);
+    padding:12px 16px;border-radius:12px;text-align:center;font-size:13px;z-index:60;display:none;}
+  h3.sec{font-size:13px;color:var(--sub);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1 id="hTitle">🚨 Eventos Campo</h1>
+    <div class="sub" id="hSub">Equipe: —</div>
+  </header>
+  <main>
+
+    <!-- MAPA -->
+    <div class="view" id="v-mapa">
+      <div class="chiprow" id="mapaFiltro"></div>
+      <div id="map"></div>
+    </div>
+
+    <!-- REGISTRAR -->
+    <div class="view" id="v-registrar">
+      <h3 class="sec">Tipo de evento</h3>
+      <div class="tipogrid" id="tipoGrid"></div>
+      <h3 class="sec">Nível de risco (0 resolvido — 5 mais grave)</h3>
+      <div class="riscorow" id="riscoRow"></div>
+      <h3 class="sec">Vítimas</h3>
+      <label class="lbl">Quantidade</label>
+      <input type="number" id="fVitimas" min="0" value="0">
+      <label class="lbl">Observação sobre vítimas</label>
+      <textarea id="fVitimasObs" placeholder="Ex: 1 ferido leve"></textarea>
+      <h3 class="sec">Via obstruída</h3>
+      <div class="btnrow" style="margin-bottom:10px">
+        <button class="btn sm" id="viaSim" style="flex:1">🚧 Sim</button>
+        <button class="btn sm" id="viaNao" style="flex:1;background:var(--card2)">Não</button>
+      </div>
+      <textarea id="fViaObs" placeholder="Detalhe da obstrução (opcional)"></textarea>
+      <h3 class="sec">Recursos necessários</h3>
+      <div id="recursosTags"></div>
+      <h3 class="sec">Observação geral</h3>
+      <textarea id="fObs" placeholder="Descreva a ocorrência..."></textarea>
+      <h3 class="sec">Localização</h3>
+      <button class="btn" id="btnGPS">📍 Capturar localização atual</button>
+      <div class="sub" id="gpsStatus" style="font-size:12px;margin-bottom:12px;">Nenhuma localização capturada ainda</div>
+      <button class="btn primary" id="btnSalvarOcc">✅ Registrar ocorrência</button>
+    </div>
+
+    <!-- MISSÕES -->
+    <div class="view" id="v-missoes">
+      <div id="missoesList"></div>
+    </div>
+
+    <!-- AVISOS -->
+    <div class="view" id="v-avisos">
+      <div id="avisosList"></div>
+    </div>
+
+    <!-- ROTA -->
+    <div class="view" id="v-rota">
+      <div class="card" style="text-align:center;">
+        <div id="rotaStatusTxt" style="font-size:13px;color:var(--sub);margin-bottom:10px;">Rota parada</div>
+        <div class="btnrow">
+          <button class="btn ok" id="btnRotaStart">▶️ Iniciar rota</button>
+          <button class="btn warn" id="btnRotaStop" style="display:none">⏹️ Parar rota</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAPAS OFFLINE -->
+    <div class="view" id="v-mapas">
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">Baixar mapa de uma região</h3>
+        <label class="lbl">Nome do município/região</label>
+        <input type="text" id="fRegiaoNome" placeholder="Ex: Florianópolis, SC">
+        <button class="btn primary" id="btnBaixarRegiao">⬇️ Buscar e baixar mapa</button>
+        <div id="baixarProgresso" style="font-size:12px;color:var(--sub);margin-top:8px;"></div>
+      </div>
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">Mapas baixados</h3>
+        <div id="regioesList"></div>
+      </div>
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">Importar mapa recebido do outro app</h3>
+        <button class="btn" id="btnImportarMapaBtn">📥 Selecionar arquivo (.mvd)</button>
+        <input type="file" id="fileImportarMapa" class="fileinput" accept=".mvd,.json">
+      </div>
+    </div>
+
+    <!-- SYNC -->
+    <div class="view" id="v-sync">
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">Minha equipe</h3>
+        <input type="text" id="fEquipeNome" placeholder="Nome da equipe (ex: Resgate 1)">
+        <button class="btn primary" id="btnSalvarEquipe">Salvar</button>
+      </div>
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">Enviar dados para o Quartel</h3>
+        <button class="btn primary" id="btnExportar">⬆️ Gerar arquivo (.ved)</button>
+      </div>
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">Receber dados do Quartel</h3>
+        <button class="btn" id="btnImportarBtn">⬇️ Importar arquivo (.ved)</button>
+        <input type="file" id="fileImportar" class="fileinput" accept=".ved,.json">
+      </div>
+    </div>
+
+  </main>
+  <nav>
+    <button data-v="mapa" class="on"><span class="ic">🗺️</span>Mapa</button>
+    <button data-v="registrar"><span class="ic">➕</span>Registrar</button>
+    <button data-v="missoes"><span class="ic">🎯</span>Missões</button>
+    <button data-v="avisos"><span class="ic">⚠️</span>Avisos</button>
+    <button data-v="rota"><span class="ic">📡</span>Rota</button>
+    <button data-v="mapas"><span class="ic">🗂️</span>Mapas</button>
+    <button data-v="sync"><span class="ic">🔄</span>Sync</button>
+  </nav>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal" id="modalBody"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ════════════════════════════════════════
+// CONFIG
+// ════════════════════════════════════════
+var TIPOS_EVENTO = [
+  {tipo:'queda_arvore', ic:'🌳', l:'Queda de árvore'},
+  {tipo:'desmoronamento', ic:'🏚️', l:'Desmoronamento'},
+  {tipo:'acidente_transito', ic:'🚗', l:'Acid. trânsito'},
+  {tipo:'alagamento', ic:'🌊', l:'Alagamento'},
+  {tipo:'incendio', ic:'🔥', l:'Incêndio'},
+  {tipo:'rede_eletrica', ic:'⚡', l:'Rede elétrica'},
+  {tipo:'via_obstruida', ic:'🚧', l:'Via obstruída'},
+  {tipo:'estrutura_risco', ic:'🏠', l:'Estrutura em risco'},
+  {tipo:'animal', ic:'🐍', l:'Animal'},
+  {tipo:'produto_perigoso', ic:'🧯', l:'Produto perigoso'},
+  {tipo:'outro', ic:'❓', l:'Outro'}
+];
+var RECURSOS_PADRAO = ['viatura_resgate','viatura_combate_incendio','ambulancia','maquina_pesada',
+  'equipe_energia_eletrica','equipe_saneamento','apoio_policia','apoio_outro_orgao',
+  'equipamento_corte','equipamento_desobstrucao'];
+var RECURSO_LABEL = {viatura_resgate:'Viatura resgate',viatura_combate_incendio:'Viatura incêndio',
+  ambulancia:'Ambulância',maquina_pesada:'Máquina pesada',equipe_energia_eletrica:'Energia elétrica',
+  equipe_saneamento:'Saneamento',apoio_policia:'Apoio polícia',apoio_outro_orgao:'Apoio outro órgão',
+  equipamento_corte:'Equip. de corte',equipamento_desobstrucao:'Equip. desobstrução'};
+var RISCO_COR = {0:'#6b7280',1:'#34C759',2:'#A3C900',3:'#FF9F0A',4:'#FF6B00',5:'#C0272D'};
+var RISCO_LABEL = {0:'Resolvida',1:'Baixo',2:'Leve',3:'Moderado',4:'Alto',5:'Crítico'};
+
+function tipoInfo(t){ return TIPOS_EVENTO.find(function(x){return x.tipo===t;}) || TIPOS_EVENTO[TIPOS_EVENTO.length-1]; }
+
+// ════════════════════════════════════════
+// DB
+// ════════════════════════════════════════
+var DBKEY = 'eventosCampoDB';
+function loadDB(){
+  try{ var d = JSON.parse(localStorage.getItem(DBKEY)); if(d) return d; }catch(e){}
+  return {ocorrencias:[], equipes:[], pacotesRecebidos:[], minhaEquipe:'', trajetorias:[], contadorExport:{}};
+}
+function saveDB(db){ localStorage.setItem(DBKEY, JSON.stringify(db)); }
+var db = loadDB();
+
+function uid(p){ return p+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function nowISO(){ return new Date().toISOString(); }
+function fmtData(iso){ if(!iso) return ''; var d=new Date(iso); function p(n){return (n<10?'0':'')+n;}
+  return p(d.getDate())+'/'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+
+function toast(msg){
+  var t = document.getElementById('toast'); t.textContent = msg; t.style.display='block';
+  setTimeout(function(){ t.style.display='none'; }, 2600);
+}
+
+// ════════════════════════════════════════
+// MAPAS OFFLINE — IndexedDB de tiles
+// ════════════════════════════════════════
+var idbPromise = null;
+function abrirTilesDB(){
+  if(idbPromise) return idbPromise;
+  idbPromise = new Promise(function(resolve,reject){
+    var req = indexedDB.open('mapaOfflineDB', 1);
+    req.onupgradeneeded = function(e){
+      var d = e.target.result;
+      if(!d.objectStoreNames.contains('tiles')) d.createObjectStore('tiles', {keyPath:'chave'});
+      if(!d.objectStoreNames.contains('regioes')) d.createObjectStore('regioes', {keyPath:'id'});
+    };
+    req.onsuccess = function(e){ resolve(e.target.result); };
+    req.onerror = function(e){ reject(e); };
+  });
+  return idbPromise;
+}
+function tileChave(z,x,y){ return z+'/'+x+'/'+y; }
+function salvarTile(z,x,y,blob){
+  return abrirTilesDB().then(function(db){ return new Promise(function(res,rej){
+    var tx = db.transaction('tiles','readwrite');
+    tx.objectStore('tiles').put({chave:tileChave(z,x,y), z:z,x:x,y:y, blob:blob});
+    tx.oncomplete=function(){res();}; tx.onerror=function(e){rej(e);};
+  }); });
+}
+function lerTile(z,x,y){
+  return abrirTilesDB().then(function(db){ return new Promise(function(res){
+    var tx = db.transaction('tiles','readonly');
+    var req = tx.objectStore('tiles').get(tileChave(z,x,y));
+    req.onsuccess=function(){ res(req.result ? req.result.blob : null); };
+    req.onerror=function(){ res(null); };
+  }); });
+}
+function salvarRegiao(meta){
+  return abrirTilesDB().then(function(db){ return new Promise(function(res){
+    var tx=db.transaction('regioes','readwrite'); tx.objectStore('regioes').put(meta);
+    tx.oncomplete=function(){res();};
+  }); });
+}
+function listarRegioes(){
+  return abrirTilesDB().then(function(db){ return new Promise(function(res){
+    var tx=db.transaction('regioes','readonly'); var req=tx.objectStore('regioes').getAll();
+    req.onsuccess=function(){res(req.result||[]);};
+  }); });
+}
+function removerRegiao(id){
+  return abrirTilesDB().then(function(db){ return new Promise(function(res){
+    var tx=db.transaction('regioes','readwrite'); tx.objectStore('regioes').delete(id);
+    tx.oncomplete=function(){res();};
+  }); });
+}
+function listarTilesDaRegiao(regiao){
+  return abrirTilesDB().then(function(db){ return new Promise(function(res){
+    var tx=db.transaction('tiles','readonly'); var req=tx.objectStore('tiles').getAll();
+    req.onsuccess=function(){
+      var todos = req.result||[];
+      res(todos.filter(function(t){
+        if(t.z<regiao.zoomMin||t.z>regiao.zoomMax) return false;
+        var r = bboxParaTiles(regiao.bbox, t.z);
+        return t.x>=r.xMin && t.x<=r.xMax && t.y>=r.yMin && t.y<=r.yMax;
+      }));
+    };
+  }); });
+}
+function long2tile(lon,z){ return Math.floor((lon+180)/360*Math.pow(2,z)); }
+function lat2tile(lat,z){ return Math.floor((1-Math.log(Math.tan(lat*Math.PI/180)+1/Math.cos(lat*Math.PI/180))/Math.PI)/2*Math.pow(2,z)); }
+function bboxParaTiles(bbox,z){
+  return { xMin: long2tile(bbox.west,z), xMax: long2tile(bbox.east,z),
+    yMin: lat2tile(bbox.north,z), yMax: lat2tile(bbox.south,z) };
+}
+function buscarRegiaoGeo(nome){
+  return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&q='+encodeURIComponent(nome))
+    .then(function(r){return r.json();}).then(function(arr){
+      if(!arr.length) throw new Error('Região não encontrada');
+      var it = arr[0];
+      return { nome: it.display_name, bbox: { south:parseFloat(it.boundingbox[0]), north:parseFloat(it.boundingbox[1]),
+        west:parseFloat(it.boundingbox[2]), east:parseFloat(it.boundingbox[3]) } };
+    });
+}
+var ZOOM_MIN_PADRAO = 11, ZOOM_MAX_PADRAO = 15;
+function baixarRegiao(nomeConsulta, onProgress){
+  return buscarRegiaoGeo(nomeConsulta).then(function(info){
+    var tiles = [];
+    for(var z=ZOOM_MIN_PADRAO; z<=ZOOM_MAX_PADRAO; z++){
+      var r = bboxParaTiles(info.bbox, z);
+      for(var x=r.xMin; x<=r.xMax; x++) for(var y=r.yMin; y<=r.yMax; y++) tiles.push({z:z,x:x,y:y});
+    }
+    if(tiles.length > 8000) throw new Error('Área grande demais ('+tiles.length+' tiles) — tente uma região mais específica');
+    var total = tiles.length, feitos=0, idx=0, CONC=6;
+    return new Promise(function(resolve){
+      function proxima(){
+        if(idx>=tiles.length) return;
+        var t = tiles[idx++];
+        var sub = ['a','b','c'][(t.x+t.y)%3];
+        var url = 'https://'+sub+'.tile.openstreetmap.org/'+t.z+'/'+t.x+'/'+t.y+'.png';
+        fetch(url).then(function(r){return r.blob();}).then(function(blob){ return salvarTile(t.z,t.x,t.y,blob); })
+          .catch(function(){}).then(function(){
+            feitos++; if(onProgress) onProgress(feitos,total);
+            if(feitos>=total){
+              var meta = {id:uid('reg'), nome:info.nome, bbox:info.bbox, zoomMin:ZOOM_MIN_PADRAO, zoomMax:ZOOM_MAX_PADRAO, tileCount:total, criadoEm:nowISO()};
+              salvarRegiao(meta).then(function(){resolve(meta);});
+            } else proxima();
+          });
+      }
+      for(var c=0;c<CONC;c++) proxima();
+    });
+  });
+}
+function blobToDataURL(blob){
+  return new Promise(function(res){
+    var reader = new FileReader();
+    reader.onloadend = function(){ res(reader.result); };
+    reader.readAsDataURL(blob);
+  });
+}
+function gerarExportRegiao(regiaoId){
+  return listarRegioes().then(function(regs){
+    var reg = regs.find(function(r){return r.id===regiaoId;});
+    return listarTilesDaRegiao(reg).then(function(tiles){
+      return Promise.all(tiles.map(function(t){
+        return blobToDataURL(t.blob).then(function(d){ return {z:t.z,x:t.x,y:t.y,d:d}; });
+      })).then(function(tilesD){
+        var pacote = {tipo:'mapa-offline', regiao:reg, tiles:tilesD};
+        var blob = new Blob([JSON.stringify(pacote)], {type:'application/json'});
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'MAPA_'+reg.nome.split(',')[0].replace(/\s+/g,'')+'.mvd';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      });
+    });
+  });
+}
+function importarRegiaoArquivo(file){
+  return file.text().then(function(txt){
+    var pacote = JSON.parse(txt);
+    return Promise.all(pacote.tiles.map(function(t){
+      return fetch(t.d).then(function(r){return r.blob();}).then(function(blob){ return salvarTile(t.z,t.x,t.y,blob); });
+    })).then(function(){
+      var meta = pacote.regiao; meta.id = uid('reg');
+      return salvarRegiao(meta);
+    });
+  });
+}
+var OfflineTileLayer = L.TileLayer.extend({
+  createTile: function(coords, done){
+    var tile = document.createElement('img');
+    var z=coords.z, x=coords.x, y=coords.y;
+    lerTile(z,x,y).then(function(blob){
+      if(blob){ tile.src = URL.createObjectURL(blob); done(null, tile); }
+      else {
+        var sub = ['a','b','c'][(x+y)%3];
+        var url = 'https://'+sub+'.tile.openstreetmap.org/'+z+'/'+x+'/'+y+'.png';
+        tile.onload = function(){ done(null, tile); };
+        tile.onerror = function(e){ done(e, tile); };
+        tile.src = url;
+        fetch(url).then(function(r){return r.blob();}).then(function(blob){ salvarTile(z,x,y,blob); }).catch(function(){});
+      }
+    });
+    return tile;
+  }
+});
+function renderRegioesList(){
+  listarRegioes().then(function(regs){
+    var el = document.getElementById('regioesList');
+    if(!regs.length){ el.innerHTML = '<div style="color:var(--sub);font-size:12px">Nenhum mapa baixado ainda</div>'; return; }
+    el.innerHTML = regs.map(function(r){
+      return '<div class="card" style="margin-bottom:8px;padding:12px">'+
+        '<b>'+r.nome.split(',').slice(0,2).join(',')+'</b>'+
+        '<div style="font-size:11px;color:var(--sub);margin-top:4px">'+r.tileCount+' tiles · zoom '+r.zoomMin+'-'+r.zoomMax+' · '+fmtData(r.criadoEm)+'</div>'+
+        '<div class="btnrow" style="margin-top:8px"><button class="btn sm" onclick="exportarRegiao(\''+r.id+'\')" style="flex:1">📤 Exportar</button>'+
+        '<button class="btn sm warn" onclick="removerRegiaoUI(\''+r.id+'\')" style="flex:1">🗑️ Remover</button></div></div>';
+    }).join('');
+  });
+}
+window.exportarRegiao = function(id){ toast('Gerando arquivo do mapa...'); gerarExportRegiao(id).then(function(){ toast('Mapa exportado ✅'); }); };
+window.removerRegiaoUI = function(id){ removerRegiao(id).then(function(){ renderRegioesList(); toast('Mapa removido'); }); };
+
+document.getElementById('btnBaixarRegiao').addEventListener('click', function(){
+  var nome = document.getElementById('fRegiaoNome').value.trim();
+  if(!nome){ toast('Digite o nome do município/região'); return; }
+  document.getElementById('baixarProgresso').textContent = 'Buscando região...';
+  baixarRegiao(nome, function(feitos,total){
+    document.getElementById('baixarProgresso').textContent = 'Baixando: '+feitos+'/'+total+' tiles';
+  }).then(function(meta){
+    document.getElementById('baixarProgresso').textContent = 'Concluído: '+meta.tileCount+' tiles salvos ✅';
+    renderRegioesList(); renderMapa();
+  }).catch(function(err){
+    document.getElementById('baixarProgresso').textContent = 'Erro: '+err.message;
+  });
+});
+document.getElementById('btnImportarMapaBtn').addEventListener('click', function(){ document.getElementById('fileImportarMapa').click(); });
+document.getElementById('fileImportarMapa').addEventListener('change', function(e){
+  var file = e.target.files && e.target.files[0]; if(!file) return;
+  importarRegiaoArquivo(file).then(function(){ renderRegioesList(); renderMapa(); toast('Mapa importado ✅'); })
+    .catch(function(){ toast('Erro ao importar mapa'); });
+});
+
+// ════════════════════════════════════════
+// NAV
+// ════════════════════════════════════════
+document.querySelectorAll('nav button').forEach(function(b){
+  b.addEventListener('click', function(){
+    document.querySelectorAll('nav button').forEach(function(x){x.classList.remove('on');});
+    document.querySelectorAll('.view').forEach(function(x){x.classList.remove('on');});
+    b.classList.add('on');
+    document.getElementById('v-'+b.dataset.v).classList.add('on');
+    if(b.dataset.v==='mapa'){ setTimeout(function(){map.invalidateSize(); renderMapa();},50); }
+    if(b.dataset.v==='missoes') renderMissoes();
+    if(b.dataset.v==='avisos') renderAvisos();
+    if(b.dataset.v==='mapas') renderRegioesList();
+  });
+});
+document.getElementById('hSub').textContent = 'Equipe: ' + (db.minhaEquipe || '—');
+
+// ════════════════════════════════════════
+// MAPA
+// ════════════════════════════════════════
+var map = L.map('map', {zoomControl:true}).setView([-27.5954,-48.5480], 12);
+new OfflineTileLayer('',{maxZoom:19}).addTo(map);
+var mapLayer = L.layerGroup().addTo(map);
+var mapFiltroTipo = 'todos';
+
+function buildMapaFiltro(){
+  var el = document.getElementById('mapaFiltro');
+  var chips = [{k:'todos',l:'Todas'}].concat(TIPOS_EVENTO.map(function(t){return {k:t.tipo,l:t.ic};}));
+  el.innerHTML = chips.map(function(c){
+    return '<div class="chip'+(c.k===mapFiltroTipo?' on':'')+'" data-k="'+c.k+'">'+c.l+'</div>';
+  }).join('');
+  el.querySelectorAll('.chip').forEach(function(ch){
+    ch.addEventListener('click', function(){ mapFiltroTipo = ch.dataset.k; buildMapaFiltro(); renderMapa(); });
+  });
+}
+function renderMapa(){
+  mapLayer.clearLayers();
+  db.ocorrencias.forEach(function(o){
+    if(mapFiltroTipo!=='todos' && o.tipo!==mapFiltroTipo) return;
+    if(o.lat==null) return;
+    var ic = L.divIcon({html:'<div style="font-size:22px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">'+tipoInfo(o.tipo).ic+'</div>',className:'',iconSize:[26,26]});
+    var m = L.marker([o.lat,o.lng],{icon:ic}).addTo(mapLayer);
+    m.bindPopup('<b>'+tipoInfo(o.tipo).l+'</b><br>Risco: '+o.risco+' — '+RISCO_LABEL[o.risco]+
+      (o.observacao?'<br>'+o.observacao:''));
+  });
+  // trajetórias
+  (db.trajetorias||[]).forEach(function(tr){
+    if(tr.pontos && tr.pontos.length>1){
+      var latlngs = tr.pontos.map(function(p){return [p.lat,p.lng];});
+      L.polyline(latlngs, {color:'#FF8A3D', weight:3, opacity:.8}).addTo(mapLayer);
+    }
+  });
+}
+buildMapaFiltro();
+
+// ════════════════════════════════════════
+// REGISTRAR OCORRÊNCIA
+// ════════════════════════════════════════
+var formState = {tipo:null, risco:3, via:false, recursos:[], lat:null, lng:null};
+
+function buildTipoGrid(){
+  document.getElementById('tipoGrid').innerHTML = TIPOS_EVENTO.map(function(t){
+    return '<div class="tipobtn" data-t="'+t.tipo+'"><div class="ic">'+t.ic+'</div><div class="l">'+t.l+'</div></div>';
+  }).join('');
+  document.querySelectorAll('.tipobtn').forEach(function(b){
+    b.addEventListener('click', function(){
+      document.querySelectorAll('.tipobtn').forEach(function(x){x.classList.remove('on');});
+      b.classList.add('on'); formState.tipo = b.dataset.t;
+    });
+  });
+}
+function buildRiscoRow(){
+  document.getElementById('riscoRow').innerHTML = [0,1,2,3,4,5].map(function(r){
+    return '<div class="riscobtn" data-r="'+r+'" style="'+(r===formState.risco?'background:'+RISCO_COR[r]+';border-color:'+RISCO_COR[r]:'')+'">'+r+'</div>';
+  }).join('');
+  document.querySelectorAll('.riscobtn').forEach(function(b){
+    b.addEventListener('click', function(){
+      formState.risco = parseInt(b.dataset.r);
+      document.querySelectorAll('.riscobtn').forEach(function(x){x.style.background='var(--card2)';x.style.borderColor='var(--border)';});
+      b.style.background = RISCO_COR[formState.risco]; b.style.borderColor = RISCO_COR[formState.risco];
+    });
+  });
+}
+function buildRecursosTags(){
+  document.getElementById('recursosTags').innerHTML = RECURSOS_PADRAO.map(function(r){
+    return '<span class="tag" data-r="'+r+'">'+RECURSO_LABEL[r]+'</span>';
+  }).join('');
+  document.querySelectorAll('#recursosTags .tag').forEach(function(t){
+    t.addEventListener('click', function(){
+      t.classList.toggle('on');
+      var r = t.dataset.r;
+      var i = formState.recursos.indexOf(r);
+      if(i>=0) formState.recursos.splice(i,1); else formState.recursos.push(r);
+    });
+  });
+}
+buildTipoGrid(); buildRiscoRow(); buildRecursosTags();
+
+document.getElementById('viaSim').addEventListener('click', function(){ formState.via=true;
+  this.style.background='var(--amar)'; this.style.color='#1C1C1E';
+  document.getElementById('viaNao').style.background='var(--card2)'; document.getElementById('viaNao').style.color='#fff';});
+document.getElementById('viaNao').addEventListener('click', function(){ formState.via=false;
+  this.style.background='var(--card2)'; this.style.color='#fff';
+  document.getElementById('viaSim').style.background='var(--card2)'; document.getElementById('viaSim').style.color='#fff';});
+
+document.getElementById('btnGPS').addEventListener('click', function(){
+  if(!navigator.geolocation){ toast('GPS não disponível neste aparelho'); return; }
+  document.getElementById('gpsStatus').textContent = 'Obtendo localização...';
+  navigator.geolocation.getCurrentPosition(function(pos){
+    formState.lat = pos.coords.latitude; formState.lng = pos.coords.longitude;
+    document.getElementById('gpsStatus').textContent = '📍 '+formState.lat.toFixed(5)+', '+formState.lng.toFixed(5)+' (precisão '+Math.round(pos.coords.accuracy)+'m)';
+  }, function(err){
+    document.getElementById('gpsStatus').textContent = 'Erro ao obter localização: '+err.message;
+  }, {enableHighAccuracy:true, timeout:15000});
+});
+
+document.getElementById('btnSalvarOcc').addEventListener('click', function(){
+  if(!formState.tipo){ toast('Escolha o tipo de evento'); return; }
+  if(formState.lat==null){ toast('Capture a localização antes de salvar'); return; }
+  var agora = nowISO();
+  var occ = {
+    id: uid('oco'), tipo: formState.tipo, lat: formState.lat, lng: formState.lng,
+    risco: formState.risco,
+    observacao: document.getElementById('fObs').value,
+    vitimas: { quantidade: parseInt(document.getElementById('fVitimas').value)||0, observacao: document.getElementById('fVitimasObs').value },
+    viaObstruida: { obstruida: formState.via, observacao: document.getElementById('fViaObs').value },
+    recursosNecessarios: formState.recursos.slice(),
+    historico: [{ dataHora: agora, risco: formState.risco, observacao: document.getElementById('fObs').value, autor: db.minhaEquipe||'campo', origem:'campo' }],
+    empenhos: [], criadoEm: agora, criadoPor: db.minhaEquipe||'', origem:'campo',
+    atualizadoEm: agora, resolvidaEm: null
+  };
+  db.ocorrencias.push(occ); saveDB(db);
+  toast('Ocorrência registrada ✅');
+  // reset form
+  formState = {tipo:null, risco:3, via:false, recursos:[], lat:null, lng:null};
+  document.querySelectorAll('.tipobtn').forEach(function(x){x.classList.remove('on');});
+  document.querySelectorAll('#recursosTags .tag').forEach(function(x){x.classList.remove('on');});
+  document.getElementById('fVitimas').value=0; document.getElementById('fVitimasObs').value='';
+  document.getElementById('fViaObs').value=''; document.getElementById('fObs').value='';
+  document.getElementById('gpsStatus').textContent = 'Nenhuma localização capturada ainda';
+  buildRiscoRow();
+  renderMapa();
+});
+
+// ════════════════════════════════════════
+// MISSÕES (ocorrências empenhadas pra minha equipe)
+// ════════════════════════════════════════
+function minhasMissoes(){
+  return db.ocorrencias.filter(function(o){
+    return (o.empenhos||[]).some(function(e){ return e.equipeNome === db.minhaEquipe && e.status !== 'encerrado'; });
+  });
+}
+function renderMissoes(){
+  var el = document.getElementById('missoesList');
+  var lista = minhasMissoes();
+  if(!db.minhaEquipe){ el.innerHTML = '<div class="empty"><div class="ico">🎯</div>Configure o nome da sua equipe na aba Sync</div>'; return; }
+  if(!lista.length){ el.innerHTML = '<div class="empty"><div class="ico">🎯</div>Nenhuma missão recebida ainda</div>'; return; }
+  el.innerHTML = lista.map(function(o){
+    var emp = (o.empenhos||[]).find(function(e){return e.equipeNome===db.minhaEquipe;});
+    return '<div class="occcard" style="border-left-color:'+RISCO_COR[o.risco]+'" data-id="'+o.id+'">'+
+      '<div class="top"><span class="tipo">'+tipoInfo(o.tipo).ic+' '+tipoInfo(o.tipo).l+'</span>'+
+      '<span class="risco" style="background:'+RISCO_COR[o.risco]+'">'+o.risco+'</span></div>'+
+      '<div class="meta">'+(o.observacao||'sem observação')+'</div>'+
+      '<div><span class="badge">Status: '+(emp?emp.status:'—')+'</span></div></div>';
+  }).join('');
+  el.querySelectorAll('.occcard').forEach(function(c){
+    c.addEventListener('click', function(){ abrirMissaoModal(c.dataset.id); });
+  });
+}
+function abrirMissaoModal(id){
+  var o = db.ocorrencias.find(function(x){return x.id===id;});
+  var emp = (o.empenhos||[]).find(function(e){return e.equipeNome===db.minhaEquipe;});
+  var body = document.getElementById('modalBody');
+  body.innerHTML =
+    '<button class="closebtn" id="mClose">✕</button>'+
+    '<h2>'+tipoInfo(o.tipo).ic+' '+tipoInfo(o.tipo).l+'</h2>'+
+    '<div class="badge">Status atual: '+emp.status+'</div><br><br>'+
+    '<label class="lbl">Novo nível de risco (0-5)</label>'+
+    '<div class="riscorow" id="mRiscoRow"></div>'+
+    '<label class="lbl">Observação da atualização</label>'+
+    '<textarea id="mObs" placeholder="O que foi feito / situação atual"></textarea>'+
+    '<div class="btnrow" style="margin-bottom:10px">'+
+    '<button class="btn ok" id="btnChegada">📍 Cheguei no local</button>'+
+    '<button class="btn warn" id="btnEncerrar">🏁 Encerrar</button></div>'+
+    '<button class="btn primary" id="btnAtualizarMissao">💾 Salvar atualização</button>';
+  var mr = 3;
+  document.getElementById('mRiscoRow').innerHTML = [0,1,2,3,4,5].map(function(r){
+    return '<div class="riscobtn mr" data-r="'+r+'" style="'+(r===o.risco?'background:'+RISCO_COR[r]+';border-color:'+RISCO_COR[r]:'')+'">'+r+'</div>';
+  }).join('');
+  mr = o.risco;
+  document.querySelectorAll('.mr').forEach(function(b){
+    b.addEventListener('click', function(){
+      mr = parseInt(b.dataset.r);
+      document.querySelectorAll('.mr').forEach(function(x){x.style.background='var(--card2)';x.style.borderColor='var(--border)';});
+      b.style.background = RISCO_COR[mr]; b.style.borderColor = RISCO_COR[mr];
+    });
+  });
+  document.getElementById('mClose').addEventListener('click', fecharModal);
+  document.getElementById('btnChegada').addEventListener('click', function(){ emp.horaChegada = nowISO(); emp.status='no_local'; saveDB(db); toast('Chegada registrada'); });
+  document.getElementById('btnEncerrar').addEventListener('click', function(){
+    emp.horaEncerramento = nowISO(); emp.status='encerrado'; mr = 0;
+    document.querySelectorAll('.mr').forEach(function(x){x.style.background='var(--card2)';x.style.borderColor='var(--border)';});
+    saveDB(db); toast('Ocorrência marcada como encerrada — salve pra confirmar');
+  });
+  document.getElementById('btnAtualizarMissao').addEventListener('click', function(){
+    var obsTxt = document.getElementById('mObs').value;
+    var agora = nowISO();
+    o.risco = mr; o.observacao = obsTxt || o.observacao; o.atualizadoEm = agora;
+    if(mr===0) o.resolvidaEm = agora;
+    o.historico.push({dataHora:agora, risco:mr, observacao:obsTxt, autor:db.minhaEquipe, origem:'campo'});
+    saveDB(db); fecharModal(); renderMissoes(); renderMapa();
+    toast('Missão atualizada ✅');
+  });
+  document.getElementById('modalBg').classList.add('on');
+}
+function fecharModal(){ document.getElementById('modalBg').classList.remove('on'); }
+document.getElementById('modalBg').addEventListener('click', function(e){ if(e.target===this) fecharModal(); });
+
+// ════════════════════════════════════════
+// AVISOS GERAIS (broadcast, sem empenho)
+// ════════════════════════════════════════
+function renderAvisos(){
+  var el = document.getElementById('avisosList');
+  var lista = db.ocorrencias.filter(function(o){ return o.origem==='geral' || (o.geral===true); });
+  if(!lista.length){ el.innerHTML = '<div class="empty"><div class="ico">⚠️</div>Nenhum aviso geral recebido</div>'; return; }
+  el.innerHTML = lista.map(function(o){
+    return '<div class="occcard" style="border-left-color:'+RISCO_COR[o.risco]+'">'+
+      '<div class="top"><span class="tipo">'+tipoInfo(o.tipo).ic+' '+tipoInfo(o.tipo).l+'</span>'+
+      '<span class="risco" style="background:'+RISCO_COR[o.risco]+'">'+o.risco+'</span></div>'+
+      '<div class="meta">'+(o.observacao||'')+'</div>'+
+      (o.viaObstruida && o.viaObstruida.obstruida ? '<div class="badge">🚧 Via obstruída</div>' : '')+
+      '</div>';
+  }).join('');
+}
+
+// ════════════════════════════════════════
+// ROTA (trajetória GPS)
+// ════════════════════════════════════════
+var rotaWatchId = null, rotaAtual = null;
+document.getElementById('btnRotaStart').addEventListener('click', function(){
+  if(!navigator.geolocation){ toast('GPS não disponível'); return; }
+  rotaAtual = { id: uid('traj'), equipeNome: db.minhaEquipe||'', inicioEm: nowISO(), pontos: [] };
+  rotaWatchId = navigator.geolocation.watchPosition(function(pos){
+    rotaAtual.pontos.push({lat:pos.coords.latitude, lng:pos.coords.longitude, dataHora: nowISO()});
+    document.getElementById('rotaStatusTxt').textContent = 'Gravando: '+rotaAtual.pontos.length+' pontos';
+  }, function(err){}, {enableHighAccuracy:true, maximumAge:5000});
+  document.getElementById('btnRotaStart').style.display='none';
+  document.getElementById('btnRotaStop').style.display='block';
+  document.getElementById('rotaStatusTxt').textContent = 'Gravando rota...';
+});
+document.getElementById('btnRotaStop').addEventListener('click', function(){
+  if(rotaWatchId!=null) navigator.geolocation.clearWatch(rotaWatchId);
+  if(rotaAtual){ rotaAtual.fimEm = nowISO(); db.trajetorias.push(rotaAtual); saveDB(db); }
+  rotaAtual = null; rotaWatchId = null;
+  document.getElementById('btnRotaStart').style.display='block';
+  document.getElementById('btnRotaStop').style.display='none';
+  document.getElementById('rotaStatusTxt').textContent = 'Rota salva';
+  renderMapa();
+});
+
+// ════════════════════════════════════════
+// SYNC — nome da equipe / export / import
+// ════════════════════════════════════════
+document.getElementById('fEquipeNome').value = db.minhaEquipe || '';
+document.getElementById('btnSalvarEquipe').addEventListener('click', function(){
+  db.minhaEquipe = document.getElementById('fEquipeNome').value.trim();
+  saveDB(db); document.getElementById('hSub').textContent = 'Equipe: '+(db.minhaEquipe||'—');
+  toast('Equipe salva');
+});
+
+function nomeArquivo(equipeNome){
+  var d = new Date(); function p(n){return (n<10?'0':'')+n;}
+  var dataStr = d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate());
+  var chave = (equipeNome||'GERAL')+'_'+dataStr;
+  db.contadorExport = db.contadorExport || {};
+  db.contadorExport[chave] = (db.contadorExport[chave]||0) + 1;
+  saveDB(db);
+  var n = db.contadorExport[chave];
+  return (equipeNome||'GERAL').replace(/\s+/g,'')+'_'+dataStr+'_'+p(n)+'.ved';
+}
+function baixarPacote(pacote, equipeNome){
+  var blob = new Blob([JSON.stringify(pacote)], {type:'application/json'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = nomeArquivo(equipeNome);
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+}
+document.getElementById('btnExportar').addEventListener('click', function(){
+  var pacote = { versao:1, geradoEm: nowISO(), direcao:'campo→quartel', equipeNome: db.minhaEquipe,
+    ocorrencias: db.ocorrencias, trajetorias: db.trajetorias, equipes: [] };
+  baixarPacote(pacote, db.minhaEquipe);
+  toast('Arquivo gerado ✅');
+});
+
+function mergeArray(local, importados){
+  local = local||[];
+  importados.forEach(function(item){
+    var idx = local.findIndex(function(x){return x.id===item.id;});
+    if(idx>=0){
+      var loc = local[idx];
+      if(loc.atualizadoEm && item.atualizadoEm && loc.atualizadoEm > item.atualizadoEm){ /* mantém local */ }
+      else local[idx]=item;
+    } else local.push(item);
+  });
+  return local;
+}
+document.getElementById('btnImportarBtn').addEventListener('click', function(){ document.getElementById('fileImportar').click(); });
+document.getElementById('fileImportar').addEventListener('change', function(e){
+  var file = e.target.files && e.target.files[0]; if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev){
+    try{
+      var pacote = JSON.parse(ev.target.result);
+      db.ocorrencias = mergeArray(db.ocorrencias, pacote.ocorrencias||[]);
+      db.equipes = mergeArray(db.equipes, pacote.equipes||[]);
+      saveDB(db);
+      renderMapa(); renderMissoes(); renderAvisos();
+      toast('Importado ✅');
+    }catch(err){ toast('Erro ao importar arquivo'); }
+  };
+  reader.readAsText(file);
+});
+
+// ════════════════════════════════════════
+// INIT
+// ════════════════════════════════════════
+renderMapa();
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw-eventos-campo.js').catch(function(){});
+}
+</script>
+</body>
+</html>
