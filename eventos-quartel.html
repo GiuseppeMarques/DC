@@ -80,7 +80,8 @@
     <button data-v="mapa" class="on">🗺️ Mapa</button>
     <button data-v="ocorrencias">📋 Ocorrências</button>
     <button data-v="equipes">👥 Equipes</button>
-    <button data-v="exportar">📤 Exportar / Missões</button>
+    <button data-v="missoes">🎯 Missões</button>
+    <button data-v="exportar">📤 Exportar</button>
     <button data-v="importar">📥 Importar</button>
     <button data-v="mapas">🗂️ Mapas offline</button>
   </aside>
@@ -89,7 +90,25 @@
     <!-- MAPA -->
     <div class="view on" id="v-mapa">
       <h2 class="pagetitle">Mapa de ocorrências</h2>
+      <div class="card" style="margin-bottom:12px">
+        <div class="chiprow" id="mapaFiltroTipo"></div>
+        <div class="chiprow" id="mapaFiltroRisco"></div>
+        <div class="grid2">
+          <div><label class="lbl">Equipe</label><select id="mapaFiltroEquipe"><option value="todos">Todas</option></select></div>
+          <div><label class="lbl">Rotas no mapa</label><select id="mapaFiltroRotas"><option value="todas">Todas as equipes</option><option value="nenhuma">Nenhuma</option></select></div>
+        </div>
+      </div>
       <div id="map"></div>
+    </div>
+
+    <!-- MISSÕES -->
+    <div class="view" id="v-missoes">
+      <h2 class="pagetitle">Controle de Missões</h2>
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">🚨 Sem equipe (<span id="semEquipeCount">0</span>)</h3>
+        <div id="semEquipeList"></div>
+      </div>
+      <div id="equipesMissoesBoard"></div>
     </div>
 
     <!-- OCORRÊNCIAS -->
@@ -461,6 +480,7 @@ document.querySelectorAll('aside button').forEach(function(b){
     if(b.dataset.v==='mapa'){ setTimeout(function(){map.invalidateSize(); renderMapa();},50); }
     if(b.dataset.v==='ocorrencias') renderTabelaOcorrencias();
     if(b.dataset.v==='equipes') renderEquipesList();
+    if(b.dataset.v==='missoes') renderMissoesBoard();
     if(b.dataset.v==='exportar') { renderMissaoEquipeSelect(); renderChecklists(); }
     if(b.dataset.v==='mapas') renderRegioesList();
   });
@@ -517,16 +537,62 @@ var BotaoFonte = L.Control.extend({
   }
 });
 map.addControl(new BotaoFonte());
+var mapaFiltro = {tipo:'todos', risco:'todos', equipe:'todos', rotas:'todas'};
+function buildMapaFiltroTipo(){
+  var chips=[{k:'todos',l:'Todos'}].concat(TIPOS_EVENTO.map(function(t){return{k:t.tipo,l:t.ic};}));
+  document.getElementById('mapaFiltroTipo').innerHTML = chips.map(function(c){
+    return '<div class="chip'+(c.k===mapaFiltro.tipo?' on':'')+'" data-k="'+c.k+'">'+c.l+'</div>';
+  }).join('');
+  document.querySelectorAll('#mapaFiltroTipo .chip').forEach(function(ch){
+    ch.addEventListener('click', function(){ mapaFiltro.tipo=ch.dataset.k; buildMapaFiltroTipo(); renderMapa(); });
+  });
+}
+function buildMapaFiltroRisco(){
+  var chips=[{k:'todos',l:'Todos'}].concat([0,1,2,3,4,5].map(function(r){return{k:String(r),l:String(r)};}));
+  document.getElementById('mapaFiltroRisco').innerHTML = chips.map(function(c){
+    return '<div class="chip'+(c.k===mapaFiltro.risco?' on':'')+'" data-k="'+c.k+'" style="'+(c.k!=='todos'&&c.k===mapaFiltro.risco?'background:'+RISCO_COR[c.k]+';border-color:'+RISCO_COR[c.k]+';color:#fff':'')+'">'+c.l+'</div>';
+  }).join('');
+  document.querySelectorAll('#mapaFiltroRisco .chip').forEach(function(ch){
+    ch.addEventListener('click', function(){ mapaFiltro.risco=ch.dataset.k; buildMapaFiltroRisco(); renderMapa(); });
+  });
+}
+function buildMapaFiltroEquipeSelects(){
+  var optsEq = '<option value="todos">Todas</option>'+db.equipes.map(function(e){return '<option value="'+e.nome+'">'+e.nome+'</option>';}).join('');
+  document.getElementById('mapaFiltroEquipe').innerHTML = optsEq;
+  document.getElementById('mapaFiltroEquipe').value = mapaFiltro.equipe;
+  document.getElementById('mapaFiltroRotas').innerHTML = '<option value="todas">Todas as equipes</option><option value="nenhuma">Nenhuma</option>'+
+    db.equipes.map(function(e){return '<option value="'+e.nome+'">'+e.nome+'</option>';}).join('');
+  document.getElementById('mapaFiltroRotas').value = mapaFiltro.rotas;
+}
+document.getElementById('mapaFiltroEquipe').addEventListener('change', function(){ mapaFiltro.equipe=this.value; renderMapa(); });
+document.getElementById('mapaFiltroRotas').addEventListener('change', function(){ mapaFiltro.rotas=this.value; renderMapa(); });
+buildMapaFiltroTipo(); buildMapaFiltroRisco(); buildMapaFiltroEquipeSelects();
+
 function renderMapa(){
   mapLayer.clearLayers();
   db.ocorrencias.forEach(function(o){
     if(o.lat==null) return;
-    var ic = L.divIcon({html:'<div style="font-size:24px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">'+tipoInfo(o.tipo).ic+'</div>',className:'',iconSize:[28,28]});
+    if(mapaFiltro.tipo!=='todos' && o.tipo!==mapaFiltro.tipo) return;
+    if(mapaFiltro.risco!=='todos' && String(o.risco)!==mapaFiltro.risco) return;
+    var equipesAtivas = (o.empenhos||[]).filter(function(e){return e.status!=='encerrado';}).map(function(e){return e.equipeNome;});
+    if(mapaFiltro.equipe!=='todos' && equipesAtivas.indexOf(mapaFiltro.equipe)<0) return;
+    var temMissao = equipesAtivas.length>0;
+    var html = '<div style="position:relative;width:30px;height:30px">'+
+      '<div style="font-size:22px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));'+
+        (temMissao?'background:#fff;border-radius:50%;outline:3px solid #3B82F6;width:26px;height:26px;display:flex;align-items:center;justify-content:center;':'')+'">'+tipoInfo(o.tipo).ic+'</div>'+
+      '<div style="position:absolute;top:-4px;right:-4px;background:'+RISCO_COR[o.risco]+';color:#fff;font-size:10px;font-weight:800;'+
+        'border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;">'+o.risco+'</div>'+
+      '</div>';
+    var ic = L.divIcon({html:html, className:'', iconSize:[30,30]});
     var m = L.marker([o.lat,o.lng],{icon:ic}).addTo(mapLayer);
     m.bindPopup('<b>'+tipoInfo(o.tipo).l+'</b><br>Risco: '+o.risco+' — '+RISCO_LABEL[o.risco]+
-      (o.observacao?'<br>'+o.observacao:'')+'<br><a href="#" onclick="abrirOccModal(\''+o.id+'\');return false;">Abrir</a>');
+      (o.observacao?'<br>'+o.observacao:'')+
+      (temMissao?'<br>👥 '+equipesAtivas.join(', '):'<br><i>Sem equipe</i>')+
+      '<br><a href="#" onclick="abrirOccModal(\''+o.id+'\');return false;">Abrir</a>');
   });
   (db.trajetorias||[]).forEach(function(tr){
+    if(mapaFiltro.rotas==='nenhuma') return;
+    if(mapaFiltro.rotas!=='todas' && tr.equipeNome!==mapaFiltro.rotas) return;
     if(tr.pontos && tr.pontos.length>1){
       L.polyline(tr.pontos.map(function(p){return [p.lat,p.lng];}), {color:'#FF8A3D', weight:3, opacity:.8})
         .addTo(mapLayer).bindTooltip(tr.equipeNome||'equipe');
@@ -679,6 +745,107 @@ function abrirOccModal(id){
 window.abrirOccModal = abrirOccModal;
 
 // ════════════════════════════════════════
+// MISSÕES — quadro de controle, trocar/apoiar equipe
+// ════════════════════════════════════════
+function ocorrenciasAbertasSemEquipe(){
+  return db.ocorrencias.filter(function(o){
+    if(o.risco===0) return false;
+    var ativos = (o.empenhos||[]).filter(function(e){return e.status!=='encerrado';});
+    return ativos.length===0;
+  });
+}
+function ocorrenciasDaEquipe(equipeNome){
+  return db.ocorrencias.filter(function(o){
+    return (o.empenhos||[]).some(function(e){return e.equipeNome===equipeNome && e.status!=='encerrado';});
+  });
+}
+function renderMissoesBoard(){
+  var semEq = ocorrenciasAbertasSemEquipe();
+  document.getElementById('semEquipeCount').textContent = semEq.length;
+  document.getElementById('semEquipeList').innerHTML = semEq.length ? semEq.map(function(o){
+    return '<div class="histitem" style="border-color:'+RISCO_COR[o.risco]+'">'+
+      tipoInfo(o.tipo).ic+' '+tipoInfo(o.tipo).l+' — risco '+o.risco+' — '+(o.observacao||'sem obs.')+
+      '<br><button class="btn sm" style="margin-top:6px" onclick="abrirAtribuirEquipe(\''+o.id+'\')">Atribuir equipe</button></div>';
+  }).join('') : '<div style="color:var(--sub);font-size:12px">Nenhuma ocorrência em aberto sem equipe 🎉</div>';
+
+  var board = document.getElementById('equipesMissoesBoard');
+  if(!db.equipes.length){ board.innerHTML = '<div class="card"><div style="color:var(--sub);font-size:13px">Nenhuma equipe cadastrada</div></div>'; return; }
+  board.innerHTML = db.equipes.map(function(eq){
+    var ocs = ocorrenciasDaEquipe(eq.nome);
+    return '<div class="card"><h3 class="sec" style="margin-top:0">👥 '+eq.nome+' ('+ocs.length+')</h3>'+
+      (ocs.length ? ocs.map(function(o){
+        var emp = (o.empenhos||[]).find(function(e){return e.equipeNome===eq.nome && e.status!=='encerrado';});
+        var outrasEquipes = (o.empenhos||[]).filter(function(e){return e.equipeNome!==eq.nome && e.status!=='encerrado';}).map(function(e){return e.equipeNome;});
+        return '<div class="histitem" style="border-color:'+RISCO_COR[o.risco]+'">'+
+          tipoInfo(o.tipo).ic+' '+tipoInfo(o.tipo).l+' — risco '+o.risco+' — status: '+(emp?emp.status:'—')+
+          (outrasEquipes.length? '<br>Em apoio: '+outrasEquipes.join(', ') : '')+
+          '<div style="margin-top:6px;display:flex;gap:6px">'+
+          '<button class="btn sm" onclick="abrirTrocarEquipe(\''+o.id+'\',\''+eq.nome+'\')">Trocar equipe</button>'+
+          '<button class="btn sm" onclick="abrirAdicionarApoio(\''+o.id+'\')">+ Apoio</button>'+
+          '</div></div>';
+      }).join('') : '<div style="color:var(--sub);font-size:12px">Nenhuma missão ativa</div>')+
+      '</div>';
+  }).join('');
+}
+function abrirEquipeModal(ocId, modo, equipeAntigaNome){
+  var o = db.ocorrencias.find(function(x){return x.id===ocId;});
+  if(!db.equipes.length){ toast('Cadastre uma equipe primeiro'); return; }
+  var body = document.getElementById('modalBody');
+  var opts = db.equipes.map(function(e){return '<option value="'+e.id+'">'+e.nome+'</option>';}).join('');
+  var titulo = modo==='atribuir' ? 'Atribuir equipe' : modo==='trocar' ? 'Trocar equipe' : 'Adicionar equipe de apoio';
+  body.innerHTML = '<button class="closebtn" id="mClose">✕</button><h2 style="margin:0 0 14px">'+titulo+'</h2>'+
+    '<div style="font-size:13px;color:var(--sub);margin-bottom:10px">'+tipoInfo(o.tipo).ic+' '+tipoInfo(o.tipo).l+' — risco '+o.risco+'</div>'+
+    '<label class="lbl">Equipe</label><select id="mEquipeSel">'+opts+'</select>'+
+    '<button class="btn primary" id="btnConfirmarEquipe" style="margin-top:10px">Confirmar</button>';
+  document.getElementById('mClose').addEventListener('click', fecharModal);
+  document.getElementById('btnConfirmarEquipe').addEventListener('click', function(){
+    var eqId = document.getElementById('mEquipeSel').value;
+    var eq = db.equipes.find(function(x){return x.id===eqId;});
+    if(!eq) return;
+    var agora = nowISO();
+    o.empenhos = o.empenhos||[];
+    if(modo==='trocar'){
+      var antigo = o.empenhos.find(function(e){return e.equipeNome===equipeAntigaNome && e.status!=='encerrado';});
+      if(antigo){ antigo.status='encerrado'; antigo.horaEncerramento=agora; antigo.observacao=(antigo.observacao||'')+' [transferida para '+eq.nome+']'; }
+    }
+    var jaTem = o.empenhos.some(function(e){return e.equipeNome===eq.nome && e.status!=='encerrado';});
+    if(!jaTem){
+      o.empenhos.push({id:uid('emp'), ocorrenciaId:o.id, equipeNome:eq.nome, equipeId:eq.id,
+        rotaDestino:{lat:o.lat,lng:o.lng}, horaAcionamento:agora, horaDeslocamento:null, horaChegada:null, horaEncerramento:null,
+        observacao: modo==='apoio'?'Equipe de apoio':'', status:'acionado'});
+    }
+    o.atualizadoEm = agora;
+    var descricao = modo==='trocar' ? ('Trocada para '+eq.nome+(equipeAntigaNome?' (era '+equipeAntigaNome+')':'')) :
+                     modo==='apoio' ? ('Equipe de apoio adicionada: '+eq.nome) : ('Atribuída a '+eq.nome);
+    o.historico.push({dataHora:agora, risco:o.risco, observacao:descricao, autor:'quartel', origem:'quartel'});
+    saveDB(db); fecharModal(); renderMissoesBoard(); renderMapa(); renderTabelaOcorrencias();
+    toast('Atualizado ✅');
+  });
+  document.getElementById('modalBg').classList.add('on');
+}
+window.abrirAtribuirEquipe = function(id){ abrirEquipeModal(id,'atribuir',null); };
+window.abrirTrocarEquipe = function(id, equipeAntiga){ abrirEquipeModal(id,'trocar',equipeAntiga); };
+window.abrirAdicionarApoio = function(id){ abrirEquipeModal(id,'apoio',null); };
+
+// ════════════════════════════════════════
+// ATUALIZAÇÃO AUTOMÁTICA (entre abas/janelas no mesmo computador)
+// ════════════════════════════════════════
+function refrescarViewAtual(){
+  var ativo = document.querySelector('aside button.on');
+  if(!ativo) return;
+  var v = ativo.dataset.v;
+  if(v==='mapa') renderMapa();
+  else if(v==='ocorrencias') renderTabelaOcorrencias();
+  else if(v==='equipes') renderEquipesList();
+  else if(v==='missoes') renderMissoesBoard();
+  else if(v==='exportar'){ renderMissaoEquipeSelect(); renderChecklists(); }
+  else if(v==='mapas') renderRegioesList();
+}
+window.addEventListener('storage', function(e){
+  if(e.key===DBKEY){ db = loadDB(); refrescarViewAtual(); buildMapaFiltroEquipeSelects(); }
+});
+
+// ════════════════════════════════════════
 // EQUIPES
 // ════════════════════════════════════════
 function buildCapList(caps){
@@ -711,7 +878,7 @@ document.getElementById('btnSalvarEquipe').addEventListener('click', function(){
   saveDB(db);
   document.getElementById('fEqNome').value=''; document.getElementById('fEqMembros').value=''; document.getElementById('fEqViatura').value='';
   buildCapList([]);
-  renderEquipesList(); toast('Equipe salva ✅');
+  renderEquipesList(); buildMapaFiltroEquipeSelects(); toast('Equipe salva ✅');
 });
 function renderEquipesList(){
   var el = document.getElementById('equipesList');
