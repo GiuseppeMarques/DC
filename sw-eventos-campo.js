@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eventos-campo-v2';
+const CACHE_NAME = 'eventos-campo-v4';
 
 self.addEventListener('install', function(e){
   self.skipWaiting();

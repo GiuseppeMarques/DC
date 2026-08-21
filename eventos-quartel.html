@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Eventos Quartel</title>
 <link rel="manifest" href="./manifest-eventos-quartel.json">
+<link rel="icon" href="./icon-192.png">
+<link rel="apple-touch-icon" href="./icon-192.png">
 <meta name="theme-color" content="#FF6B00">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -198,7 +200,9 @@ var TIPOS_EVENTO = [
   {tipo:'incendio', ic:'🔥', l:'Incêndio'},
   {tipo:'rede_eletrica', ic:'⚡', l:'Rede elétrica'},
   {tipo:'via_obstruida', ic:'🚧', l:'Via obstruída'},
-  {tipo:'estrutura_risco', ic:'🏠', l:'Estrutura em risco'},
+  {tipo:'estrutura_risco', ic:'🧱', l:'Estrutura em risco'},
+  {tipo:'ponte', ic:'🌉', l:'Ponte'},
+  {tipo:'aph', ic:'🚑', l:'APH'},
   {tipo:'animal', ic:'🐍', l:'Animal'},
   {tipo:'produto_perigoso', ic:'🧯', l:'Produto perigoso'},
   {tipo:'outro', ic:'❓', l:'Outro'}
@@ -453,6 +457,32 @@ document.querySelectorAll('aside button').forEach(function(b){
 var map = L.map('map').setView([-27.5954,-48.5480], 12);
 new OfflineTileLayer('',{maxZoom:19}).addTo(map);
 var mapLayer = L.layerGroup().addTo(map);
+
+var meuMarcadorLive = null;
+function atualizarMarcadorLive(ll){
+  if(!meuMarcadorLive){
+    var ic = L.divIcon({html:'<div style="width:16px;height:16px;background:#3B82F6;border:3px solid #fff;border-radius:50%;box-shadow:0 0 0 4px rgba(59,130,246,.35)"></div>',className:'',iconSize:[16,16]});
+    meuMarcadorLive = L.marker(ll,{icon:ic, zIndexOffset:1000}).addTo(map);
+  } else { meuMarcadorLive.setLatLng(ll); }
+}
+var BotaoLocalizar = L.Control.extend({
+  options:{position:'topleft'},
+  onAdd: function(){
+    var btn = L.DomUtil.create('button');
+    btn.innerHTML='📍'; btn.title='Minha localização';
+    btn.style.cssText='width:34px;height:34px;background:#fff;border:none;border-radius:6px;font-size:16px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.4)';
+    L.DomEvent.disableClickPropagation(btn);
+    btn.onclick = function(){
+      if(!navigator.geolocation){ toast('GPS não disponível'); return; }
+      navigator.geolocation.getCurrentPosition(function(pos){
+        var ll=[pos.coords.latitude,pos.coords.longitude];
+        map.flyTo(ll,16); atualizarMarcadorLive(ll);
+      }, function(){ toast('Não foi possível obter localização'); }, {enableHighAccuracy:true,timeout:15000});
+    };
+    return btn;
+  }
+});
+map.addControl(new BotaoLocalizar());
 function renderMapa(){
   mapLayer.clearLayers();
   db.ocorrencias.forEach(function(o){
