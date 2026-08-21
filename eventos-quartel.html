@@ -166,6 +166,11 @@
           <br><button class="btn primary" id="btnGerarMissao">Gerar missão (.ved)</button>
         </div>
       </div>
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">🧭 Rotas gravadas (trajetórias das equipes)</h3>
+        <div class="checklist" id="checklistRotas"></div>
+        <br><button class="btn primary" id="btnExportarRotas">Exportar rota(s) selecionada(s) (.ved)</button>
+      </div>
     </div>
 
     <!-- IMPORTAR -->
@@ -481,7 +486,7 @@ document.querySelectorAll('aside button').forEach(function(b){
     if(b.dataset.v==='ocorrencias') renderTabelaOcorrencias();
     if(b.dataset.v==='equipes') renderEquipesList();
     if(b.dataset.v==='missoes') renderMissoesBoard();
-    if(b.dataset.v==='exportar') { renderMissaoEquipeSelect(); renderChecklists(); }
+    if(b.dataset.v==='exportar') { renderMissaoEquipeSelect(); renderChecklists(); renderChecklistRotas(); }
     if(b.dataset.v==='mapas') renderRegioesList();
   });
 });
@@ -675,7 +680,9 @@ document.getElementById('btnNovaOcc').addEventListener('click', function(){
 function abrirOccModal(id){
   var o = db.ocorrencias.find(function(x){return x.id===id;});
   var body = document.getElementById('modalBody');
-  var tipoOpts = TIPOS_EVENTO.map(function(t){return '<option value="'+t.tipo+'"'+(t.tipo===o.tipo?' selected':'')+'>'+t.ic+' '+t.l+'</option>';}).join('');
+  var tipoChipsHtml = TIPOS_EVENTO.map(function(t){
+    return '<div class="chip mtipochip" data-t="'+t.tipo+'" style="'+(t.tipo===o.tipo?'background:var(--acc);color:#fff;border-color:var(--acc)':'')+'">'+t.ic+' '+t.l+'</div>';
+  }).join('');
   var recTags = RECURSOS_PADRAO.map(function(r){
     return '<span class="tag'+(o.recursosNecessarios.indexOf(r)>=0?' on':'')+'" data-r="'+r+'">'+RECURSO_LABEL[r]+'</span>';
   }).join('');
@@ -692,7 +699,7 @@ function abrirOccModal(id){
   body.innerHTML =
     '<button class="closebtn" id="mClose">✕</button>'+
     '<h2 style="margin:0 0 14px">Ocorrência</h2>'+
-    '<label class="lbl">Tipo</label><select id="mTipo">'+tipoOpts+'</select>'+
+    '<label class="lbl">Tipo</label><div class="chiprow" id="mTipoChips" style="flex-wrap:wrap">'+tipoChipsHtml+'</div>'+
     '<label class="lbl">Risco (0-5)</label>'+
     '<div class="chiprow" id="mRiscoChips">'+[0,1,2,3,4,5].map(function(r){
       return '<div class="chip mrc" data-r="'+r+'" style="'+(r===o.risco?'background:'+RISCO_COR[r]+';border-color:'+RISCO_COR[r]+';color:#fff':'')+'">'+r+'</div>';
@@ -700,7 +707,8 @@ function abrirOccModal(id){
     '<label class="lbl">Observação</label><textarea id="mObs">'+(o.observacao||'')+'</textarea>'+
     '<div class="grid2">'+
       '<div><label class="lbl">Vítimas — quantidade</label><input type="number" id="mVitQtd" value="'+(o.vitimas.quantidade||0)+'"></div>'+
-      '<div><label class="lbl">Via obstruída</label><select id="mVia"><option value="nao"'+(!o.viaObstruida.obstruida?' selected':'')+'>Não</option><option value="sim"'+(o.viaObstruida.obstruida?' selected':'')+'>Sim</option></select></div>'+
+      '<div><label class="lbl">Via obstruída</label><div class="btnrow" style="margin-bottom:0"><button type="button" class="btn sm mviabtn" data-v="nao" style="flex:1;'+(!o.viaObstruida.obstruida?'background:var(--acc)':'')+'">Não</button>'+
+      '<button type="button" class="btn sm mviabtn" data-v="sim" style="flex:1;'+(o.viaObstruida.obstruida?'background:var(--amar);color:#1C1C1E':'')+'">🚧 Sim</button></div></div>'+
     '</div>'+
     '<label class="lbl">Obs. vítimas / via</label><textarea id="mVitObs">'+((o.vitimas.observacao||'')+(o.viaObstruida.observacao?(' | '+o.viaObstruida.observacao):''))+'</textarea>'+
     '<label class="lbl">Recursos necessários</label><div id="mRecTags">'+recTags+'</div>'+
@@ -709,6 +717,22 @@ function abrirOccModal(id){
     '<h3 class="sec">Histórico</h3>'+histHtml;
 
   var novoRisco = o.risco; var recSel = o.recursosNecessarios.slice();
+  var novoTipo = o.tipo; var novaVia = o.viaObstruida.obstruida;
+  document.querySelectorAll('.mtipochip').forEach(function(c){
+    c.addEventListener('click', function(){
+      novoTipo = c.dataset.t;
+      document.querySelectorAll('.mtipochip').forEach(function(x){x.style.background='var(--card2)';x.style.color='var(--sub)';x.style.borderColor='var(--border)';});
+      c.style.background='var(--acc)'; c.style.color='#fff'; c.style.borderColor='var(--acc)';
+    });
+  });
+  document.querySelectorAll('.mviabtn').forEach(function(b){
+    b.addEventListener('click', function(){
+      novaVia = b.dataset.v==='sim';
+      document.querySelectorAll('.mviabtn').forEach(function(x){x.style.background='var(--card2)';x.style.color='#fff';});
+      if(novaVia){ b.style.background='var(--amar)'; b.style.color='#1C1C1E'; }
+      else { b.style.background='var(--acc)'; b.style.color='#fff'; }
+    });
+  });
   document.querySelectorAll('.mrc').forEach(function(c){
     c.addEventListener('click', function(){
       novoRisco = parseInt(c.dataset.r);
@@ -726,12 +750,12 @@ function abrirOccModal(id){
   document.getElementById('btnSalvarOcc').addEventListener('click', function(){
     var agora = nowISO();
     var eraResolvida = o.risco===0;
-    o.tipo = document.getElementById('mTipo').value;
+    o.tipo = novoTipo;
     o.risco = novoRisco;
     o.observacao = document.getElementById('mObs').value;
     o.vitimas.quantidade = parseInt(document.getElementById('mVitQtd').value)||0;
     o.vitimas.observacao = document.getElementById('mVitObs').value;
-    o.viaObstruida.obstruida = document.getElementById('mVia').value==='sim';
+    o.viaObstruida.obstruida = novaVia;
     o.recursosNecessarios = recSel;
     o.atualizadoEm = agora;
     if(eraResolvida && novoRisco>0){ o.resolvidaEm = null; }
@@ -791,16 +815,25 @@ function abrirEquipeModal(ocId, modo, equipeAntigaNome){
   var o = db.ocorrencias.find(function(x){return x.id===ocId;});
   if(!db.equipes.length){ toast('Cadastre uma equipe primeiro'); return; }
   var body = document.getElementById('modalBody');
-  var opts = db.equipes.map(function(e){return '<option value="'+e.id+'">'+e.nome+'</option>';}).join('');
+  var chipsHtml = db.equipes.map(function(e,i){
+    return '<div class="chip mequipechip" data-id="'+e.id+'" style="'+(i===0?'background:var(--acc);color:#fff;border-color:var(--acc)':'')+'">'+e.nome+'</div>';
+  }).join('');
   var titulo = modo==='atribuir' ? 'Atribuir equipe' : modo==='trocar' ? 'Trocar equipe' : 'Adicionar equipe de apoio';
   body.innerHTML = '<button class="closebtn" id="mClose">✕</button><h2 style="margin:0 0 14px">'+titulo+'</h2>'+
     '<div style="font-size:13px;color:var(--sub);margin-bottom:10px">'+tipoInfo(o.tipo).ic+' '+tipoInfo(o.tipo).l+' — risco '+o.risco+'</div>'+
-    '<label class="lbl">Equipe</label><select id="mEquipeSel">'+opts+'</select>'+
+    '<label class="lbl">Equipe</label><div class="chiprow" id="mEquipeChips" style="flex-wrap:wrap">'+chipsHtml+'</div>'+
     '<button class="btn primary" id="btnConfirmarEquipe" style="margin-top:10px">Confirmar</button>';
+  var eqIdSelecionada = db.equipes[0].id;
+  document.querySelectorAll('.mequipechip').forEach(function(c){
+    c.addEventListener('click', function(){
+      eqIdSelecionada = c.dataset.id;
+      document.querySelectorAll('.mequipechip').forEach(function(x){x.style.background='var(--card2)';x.style.color='var(--sub)';x.style.borderColor='var(--border)';});
+      c.style.background='var(--acc)'; c.style.color='#fff'; c.style.borderColor='var(--acc)';
+    });
+  });
   document.getElementById('mClose').addEventListener('click', fecharModal);
   document.getElementById('btnConfirmarEquipe').addEventListener('click', function(){
-    var eqId = document.getElementById('mEquipeSel').value;
-    var eq = db.equipes.find(function(x){return x.id===eqId;});
+    var eq = db.equipes.find(function(x){return x.id===eqIdSelecionada;});
     if(!eq) return;
     var agora = nowISO();
     o.empenhos = o.empenhos||[];
@@ -838,7 +871,7 @@ function refrescarViewAtual(){
   else if(v==='ocorrencias') renderTabelaOcorrencias();
   else if(v==='equipes') renderEquipesList();
   else if(v==='missoes') renderMissoesBoard();
-  else if(v==='exportar'){ renderMissaoEquipeSelect(); renderChecklists(); }
+  else if(v==='exportar'){ renderMissaoEquipeSelect(); renderChecklists(); renderChecklistRotas(); }
   else if(v==='mapas') renderRegioesList();
 }
 window.addEventListener('storage', function(e){
@@ -918,6 +951,15 @@ function renderMissaoEquipeSelect(){
   var sel = document.getElementById('fMissaoEquipe');
   sel.innerHTML = db.equipes.map(function(e){return '<option value="'+e.id+'">'+e.nome+'</option>';}).join('') || '<option value="">Nenhuma equipe cadastrada</option>';
 }
+function renderChecklistRotas(){
+  var el = document.getElementById('checklistRotas');
+  var lista = (db.trajetorias||[]).slice().sort(function(a,b){ return (b.inicioEm||'').localeCompare(a.inicioEm||''); });
+  el.innerHTML = lista.map(function(tr){
+    var qtdPontos = tr.pontos ? tr.pontos.length : 0;
+    return '<label class="checkrow"><input type="checkbox" class="ckRota" value="'+tr.id+'">'+
+      '🧭 '+(tr.equipeNome||'sem equipe')+' — '+fmtData(tr.inicioEm)+' — '+qtdPontos+' pontos</label>';
+  }).join('') || '<div style="color:var(--sub);font-size:12px;padding:8px">Nenhuma rota gravada ainda</div>';
+}
 
 function nomeArquivo(equipeNome){
   var d = new Date(); function p(n){return (n<10?'0':'')+n;}
@@ -936,6 +978,17 @@ function baixarPacote(pacote, equipeNome){
   a.download = nomeArquivo(equipeNome);
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
+
+document.getElementById('btnExportarRotas').addEventListener('click', function(){
+  var ids = Array.from(document.querySelectorAll('.ckRota:checked')).map(function(c){return c.value;});
+  if(!ids.length){ toast('Marque ao menos uma rota'); return; }
+  var trajs = (db.trajetorias||[]).filter(function(t){return ids.indexOf(t.id)>=0;});
+  var equipesEnvolvidas = Array.from(new Set(trajs.map(function(t){return t.equipeNome||'';})));
+  var nomeParaArquivo = equipesEnvolvidas.length===1 ? equipesEnvolvidas[0] : 'ROTAS';
+  var pacote = { versao:1, geradoEm: nowISO(), direcao:'quartel→outro', tipo:'rota', trajetorias: trajs, ocorrencias: [], equipes: [] };
+  baixarPacote(pacote, nomeParaArquivo);
+  toast('Rota(s) exportada(s) ✅');
+});
 
 document.getElementById('btnGerarGeral').addEventListener('click', function(){
   var ids = Array.from(document.querySelectorAll('.ckGeral:checked')).map(function(c){return c.value;});
