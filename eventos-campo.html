@@ -121,6 +121,7 @@
       <h3 class="sec">Localização</h3>
       <button class="btn" id="btnGPS">📍 Capturar localização atual</button>
       <div class="sub" id="gpsStatus" style="font-size:12px;margin-bottom:12px;">Nenhuma localização capturada ainda</div>
+      <div id="dupAvisoCampo"></div>
       <button class="btn primary" id="btnSalvarOcc">✅ Registrar ocorrência</button>
     </div>
 
@@ -232,6 +233,25 @@ var RISCO_COR = {0:'#6b7280',1:'#34C759',2:'#A3C900',3:'#FF9F0A',4:'#FF6B00',5:'
 var RISCO_LABEL = {0:'Resolvida',1:'Baixo',2:'Leve',3:'Moderado',4:'Alto',5:'Crítico'};
 
 function tipoInfo(t){ return TIPOS_EVENTO.find(function(x){return x.tipo===t;}) || TIPOS_EVENTO[TIPOS_EVENTO.length-1]; }
+function distanciaMetros(lat1,lng1,lat2,lng2){
+  var R=6371000, toRad=function(d){return d*Math.PI/180;};
+  var dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function possiveisDuplicatasCampo(tipo, lat, lng){
+  if(lat==null || !tipo) return [];
+  var agora = Date.now();
+  return db.ocorrencias.filter(function(x){
+    if(x.duplicadaDe) return false;
+    if(x.lat==null) return false;
+    if(x.tipo!==tipo) return false;
+    if(distanciaMetros(lat,lng,x.lat,x.lng)>150) return false;
+    if(Math.abs(agora - new Date(x.criadoEm))/3600000>48) return false;
+    return true;
+  });
+}
+function fmtDataCurta(iso){ return fmtData(iso); }
 
 // ════════════════════════════════════════
 // DB
@@ -579,8 +599,24 @@ function buildTipoGrid(){
     b.addEventListener('click', function(){
       document.querySelectorAll('.tipobtn').forEach(function(x){x.classList.remove('on');});
       b.classList.add('on'); formState.tipo = b.dataset.t;
+      atualizarAvisoDuplicataCampo();
     });
   });
+}
+function atualizarAvisoDuplicataCampo(){
+  var el = document.getElementById('dupAvisoCampo');
+  if(!el) return;
+  var achados = possiveisDuplicatasCampo(formState.tipo, formState.lat, formState.lng);
+  if(!achados.length){ el.innerHTML=''; return; }
+  el.innerHTML = '<div class="card" style="background:#3A2A00;border:1px solid var(--amar);margin:8px 0">'+
+    '<b style="color:var(--amar)">⚠️ Já existe evento parecido aqui</b>'+
+    '<div style="font-size:12px;color:var(--sub);margin:4px 0">Mesmo tipo, perto e recente — pode já ter sido registrado por outra equipe:</div>'+
+    achados.map(function(d){
+      return '<div style="font-size:13px;padding:4px 0;border-top:1px solid var(--border)">'+tipoInfo(d.tipo).ic+' '+tipoInfo(d.tipo).l+' — '+fmtDataCurta(d.criadoEm)+' — '+(d.criadoPor||'—')+
+        (d.observacao?'<br><span style="color:var(--sub)">'+d.observacao+'</span>':'')+'</div>';
+    }).join('')+
+    '<div style="font-size:12px;color:var(--sub);margin-top:6px">Se for a mesma ocorrência, considere não cadastrar de novo — no Quartel dá pra mesclar depois se precisar.</div>'+
+  '</div>';
 }
 function buildRiscoRow(){
   document.getElementById('riscoRow').innerHTML = [0,1,2,3,4,5].map(function(r){
@@ -622,6 +658,7 @@ document.getElementById('btnGPS').addEventListener('click', function(){
   navigator.geolocation.getCurrentPosition(function(pos){
     formState.lat = pos.coords.latitude; formState.lng = pos.coords.longitude;
     document.getElementById('gpsStatus').textContent = '📍 '+formState.lat.toFixed(5)+', '+formState.lng.toFixed(5)+' (precisão '+Math.round(pos.coords.accuracy)+'m)';
+    atualizarAvisoDuplicataCampo();
   }, function(err){
     document.getElementById('gpsStatus').textContent = 'Erro ao obter localização: '+err.message;
   }, {enableHighAccuracy:true, timeout:15000});
@@ -651,6 +688,7 @@ document.getElementById('btnSalvarOcc').addEventListener('click', function(){
   document.getElementById('fVitimas').value=0; document.getElementById('fVitimasObs').value='';
   document.getElementById('fViaObs').value=''; document.getElementById('fObs').value='';
   document.getElementById('gpsStatus').textContent = 'Nenhuma localização capturada ainda';
+  document.getElementById('dupAvisoCampo').innerHTML = '';
   buildRiscoRow();
   renderMapa();
 });
@@ -718,9 +756,12 @@ function abrirMissaoModal(id){
   document.getElementById('btnAtualizarMissao').addEventListener('click', function(){
     var obsTxt = document.getElementById('mObs').value;
     var agora = nowISO();
+    var eraResolvida = o.risco===0;
+    var reativada = eraResolvida && mr>0;
     o.risco = mr; o.observacao = obsTxt || o.observacao; o.atualizadoEm = agora;
+    if(reativada){ o.resolvidaEm = null; o.reativacoes = o.reativacoes||[]; o.reativacoes.push({dataHora:agora, autor:db.minhaEquipe, origem:'campo'}); }
     if(mr===0) o.resolvidaEm = agora;
-    o.historico.push({dataHora:agora, risco:mr, observacao:obsTxt, autor:db.minhaEquipe, origem:'campo'});
+    o.historico.push({dataHora:agora, risco:mr, observacao:(reativada?'🔁 Reativada — ':'')+obsTxt, autor:db.minhaEquipe, origem:'campo', reativacao:reativada});
     saveDB(db); fecharModal(); renderMissoes(); renderMapa();
     toast('Missão atualizada ✅');
   });
@@ -818,6 +859,99 @@ function mergeArray(local, importados){
   });
   return local;
 }
+function chaveHist(h){ return [h.dataHora,h.risco,h.observacao,h.origem,h.autor,!!h.reativacao].join('|'); }
+function unionHistorico(h1,h2){
+  var vistos = {}, out = [];
+  (h1||[]).concat(h2||[]).forEach(function(h){
+    var k = chaveHist(h);
+    if(!vistos[k]){ vistos[k]=true; out.push(h); }
+  });
+  out.sort(function(a,b){ return (a.dataHora||'').localeCompare(b.dataHora||''); });
+  return out;
+}
+function uniaoIds(a,b){
+  var out = (a||[]).slice();
+  (b||[]).forEach(function(id){ if(out.indexOf(id)<0) out.push(id); });
+  return out;
+}
+var ORDEM_STATUS_EMP = {acionado:1, deslocamento:1.5, no_local:2, encerrado:3};
+function statusMaisAvancado(s1,s2){
+  var v1 = ORDEM_STATUS_EMP[s1]||0, v2 = ORDEM_STATUS_EMP[s2]||0;
+  return v1>=v2 ? s1 : s2;
+}
+function mesclarEmpenhos(e1,e2){
+  var porId = {}, ordem = [];
+  (e1||[]).concat(e2||[]).forEach(function(e){
+    if(!porId[e.id]){ porId[e.id]=Object.assign({},e); ordem.push(e.id); }
+    else{
+      var ex = porId[e.id];
+      porId[e.id] = {
+        id:e.id,
+        ocorrenciaId: ex.ocorrenciaId||e.ocorrenciaId,
+        equipeNome: ex.equipeNome||e.equipeNome,
+        equipeId: ex.equipeId||e.equipeId,
+        rotaDestino: ex.rotaDestino||e.rotaDestino,
+        horaAcionamento: ex.horaAcionamento||e.horaAcionamento,
+        horaDeslocamento: ex.horaDeslocamento||e.horaDeslocamento,
+        horaChegada: ex.horaChegada||e.horaChegada,
+        horaEncerramento: ex.horaEncerramento||e.horaEncerramento,
+        observacao: (ex.observacao&&ex.observacao.length>=(e.observacao||'').length) ? ex.observacao : e.observacao,
+        status: statusMaisAvancado(ex.status,e.status)
+      };
+    }
+  });
+  return ordem.map(function(id){return porId[id];});
+}
+function mesclarOcorrencia(a,b){
+  var m = {};
+  m.id = a.id;
+  m.criadoEm = a.criadoEm || b.criadoEm;
+  m.criadoPor = a.criadoPor || b.criadoPor;
+  m.origem = a.origem || b.origem;
+  m.lat = a.lat!=null ? a.lat : b.lat;
+  m.lng = a.lng!=null ? a.lng : b.lng;
+  m.endereco = a.endereco || b.endereco;
+  m.bairro = a.bairro || b.bairro;
+  m.municipio = a.municipio || b.municipio;
+  m.historico = unionHistorico(a.historico, b.historico);
+  var ultimo = m.historico[m.historico.length-1];
+  var maisRecente = (a.atualizadoEm||'') >= (b.atualizadoEm||'') ? a : b;
+  m.risco = ultimo ? ultimo.risco : Math.max(a.risco||0,b.risco||0);
+  m.tipo = maisRecente.tipo || a.tipo || b.tipo;
+  m.observacao = ultimo ? (ultimo.observacao||'').replace(/^🔁 Reativada — /,'') : (maisRecente.observacao||'');
+  m.vitimas = {
+    quantidade: Math.max((a.vitimas&&a.vitimas.quantidade)||0, (b.vitimas&&b.vitimas.quantidade)||0),
+    observacao: (maisRecente.vitimas&&maisRecente.vitimas.observacao) || (a.vitimas&&a.vitimas.observacao) || (b.vitimas&&b.vitimas.observacao) || ''
+  };
+  m.viaObstruida = {
+    obstruida: !!((a.viaObstruida&&a.viaObstruida.obstruida) || (b.viaObstruida&&b.viaObstruida.obstruida)),
+    observacao: (maisRecente.viaObstruida&&maisRecente.viaObstruida.observacao) || (a.viaObstruida&&a.viaObstruida.observacao) || (b.viaObstruida&&b.viaObstruida.observacao) || ''
+  };
+  m.recursosNecessarios = uniaoIds(a.recursosNecessarios, b.recursosNecessarios);
+  m.empenhos = mesclarEmpenhos(a.empenhos, b.empenhos);
+  m.vinculadas = uniaoIds(a.vinculadas, b.vinculadas);
+  m.duplicatas = uniaoIds(a.duplicatas, b.duplicatas);
+  m.duplicadaDe = a.duplicadaDe || b.duplicadaDe || null;
+  m.reativacoes = (function(){
+    var vistos={}, out=[];
+    (a.reativacoes||[]).concat(b.reativacoes||[]).forEach(function(r){
+      var k = r.dataHora+'|'+r.origem; if(!vistos[k]){vistos[k]=true; out.push(r);}
+    });
+    return out;
+  })();
+  m.atualizadoEm = maisRecente.atualizadoEm;
+  m.resolvidaEm = m.risco===0 ? (ultimo ? ultimo.dataHora : (a.resolvidaEm||b.resolvidaEm)) : null;
+  return m;
+}
+function mesclarOcorrencias(local, importadas){
+  local = local||[];
+  importadas.forEach(function(item){
+    var idx = local.findIndex(function(x){return x.id===item.id;});
+    if(idx>=0){ local[idx] = mesclarOcorrencia(local[idx], item); }
+    else { local.push(item); }
+  });
+  return local;
+}
 document.getElementById('btnImportarBtn').addEventListener('click', function(){ document.getElementById('fileImportar').click(); });
 document.getElementById('fileImportar').addEventListener('change', function(e){
   var file = e.target.files && e.target.files[0]; if(!file) return;
@@ -825,7 +959,7 @@ document.getElementById('fileImportar').addEventListener('change', function(e){
   reader.onload = function(ev){
     try{
       var pacote = JSON.parse(ev.target.result);
-      db.ocorrencias = mergeArray(db.ocorrencias, pacote.ocorrencias||[]);
+      db.ocorrencias = mesclarOcorrencias(db.ocorrencias, pacote.ocorrencias||[]);
       db.equipes = mergeArray(db.equipes, pacote.equipes||[]);
       db.trajetorias = (db.trajetorias||[]).concat((pacote.trajetorias||[]).filter(function(tr){
         return !db.trajetorias.some(function(t){return t.id===tr.id;});

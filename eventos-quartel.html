@@ -71,6 +71,19 @@
   .capline{display:flex;gap:8px;align-items:center;margin-bottom:6px;}
   .capline .l{flex:1;font-size:12px;}
   .capline select{width:110px;margin:0;}
+  #relatorioResultado table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px;}
+  #relatorioResultado th, #relatorioResultado td{border:1px solid var(--border);padding:6px 8px;text-align:left;}
+  #relatorioResultado th{background:var(--card2);}
+  @media print{
+    aside, .no-print, nav{display:none !important;}
+    main{padding:0 !important;}
+    body, #app{background:#fff !important; color:#000 !important;}
+    .view{display:none !important;}
+    #v-relatorio{display:block !important;}
+    .card{border:none !important; background:#fff !important;}
+    #relatorioResultado th{background:#eee !important;}
+    #relatorioResultado th, #relatorioResultado td{border:1px solid #999 !important; color:#000 !important;}
+  }
 </style>
 </head>
 <body>
@@ -84,6 +97,7 @@
     <button data-v="exportar">📤 Exportar</button>
     <button data-v="importar">📥 Importar</button>
     <button data-v="mapas">🗂️ Mapas offline</button>
+    <button data-v="relatorio">📄 Relatório</button>
   </aside>
   <main>
 
@@ -97,6 +111,7 @@
           <div><label class="lbl">Equipe</label><select id="mapaFiltroEquipe"><option value="todos">Todas</option></select></div>
           <div><label class="lbl">Rotas no mapa</label><select id="mapaFiltroRotas"><option value="todas">Todas as equipes</option><option value="nenhuma">Nenhuma</option></select></div>
         </div>
+        <div style="margin-top:10px"><label class="lbl">Pontos de referência (🏢)</label><select id="mapaFiltroPontosRef"><option value="mostrar">Mostrar</option><option value="ocultar">Ocultar</option></select></div>
       </div>
       <div id="map"></div>
     </div>
@@ -208,6 +223,26 @@
       </div>
     </div>
 
+    <!-- RELATÓRIO -->
+    <div class="view" id="v-relatorio">
+      <h2 class="pagetitle">Relatório de ocorrências</h2>
+      <div class="card no-print">
+        <div class="grid3">
+          <div><label class="lbl">De</label><input type="date" id="fRelDataDe"></div>
+          <div><label class="lbl">Até</label><input type="date" id="fRelDataAte"></div>
+          <div><label class="lbl">Status</label>
+            <select id="fRelStatus"><option value="todos">Todas</option><option value="abertas">Em aberto (risco>0)</option><option value="resolvidas">Resolvidas</option></select>
+          </div>
+        </div>
+        <div class="chiprow" id="relTipoFiltroChips"></div>
+        <button class="btn primary" id="btnGerarRelatorio">📄 Gerar relatório</button>
+        <button class="btn" id="btnImprimirRelatorio">🖨️ Imprimir / Salvar PDF</button>
+      </div>
+      <div class="card" id="relatorioResultado">
+        <div style="color:var(--sub);font-size:13px">Ajuste os filtros e clique em "Gerar relatório".</div>
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -243,6 +278,25 @@ var RECURSO_LABEL = {viatura_resgate:'Viatura resgate',viatura_combate_incendio:
 var RISCO_COR = {0:'#6b7280',1:'#34C759',2:'#A3C900',3:'#FF9F0A',4:'#FF6B00',5:'#C0272D'};
 var RISCO_LABEL = {0:'Resolvida',1:'Baixo',2:'Leve',3:'Moderado',4:'Alto',5:'Crítico'};
 function tipoInfo(t){ return TIPOS_EVENTO.find(function(x){return x.tipo===t;}) || TIPOS_EVENTO[TIPOS_EVENTO.length-1]; }
+function distanciaMetros(lat1,lng1,lat2,lng2){
+  var R=6371000, toRad=function(d){return d*Math.PI/180;};
+  var dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
+  var a=Math.sin(dLat/2)*Math.sin(dLat/2)+Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function possiveisDuplicatas(o){
+  if(o.lat==null) return [];
+  return db.ocorrencias.filter(function(x){
+    if(x.id===o.id || x.duplicadaDe) return false;
+    if(x.lat==null) return false;
+    if(x.tipo!==o.tipo) return false;
+    var distM = distanciaMetros(o.lat,o.lng,x.lat,x.lng);
+    if(distM>150) return false;
+    var horasDiff = Math.abs(new Date(o.criadoEm) - new Date(x.criadoEm))/3600000;
+    if(horasDiff>48) return false;
+    return true;
+  });
+}
 
 // ════════════════════════════════════════
 // DB
@@ -250,7 +304,7 @@ function tipoInfo(t){ return TIPOS_EVENTO.find(function(x){return x.tipo===t;}) 
 var DBKEY = 'eventosQuartelDB';
 function loadDB(){
   try{ var d = JSON.parse(localStorage.getItem(DBKEY)); if(d) return d; }catch(e){}
-  return {ocorrencias:[], equipes:[], trajetorias:[], contadorExport:{}};
+  return {ocorrencias:[], equipes:[], trajetorias:[], pontosReferencia:[], contadorExport:{}};
 }
 function saveDB(db){ localStorage.setItem(DBKEY, JSON.stringify(db)); }
 var db = loadDB();
@@ -488,6 +542,7 @@ document.querySelectorAll('aside button').forEach(function(b){
     if(b.dataset.v==='missoes') renderMissoesBoard();
     if(b.dataset.v==='exportar') { renderMissaoEquipeSelect(); renderChecklists(); renderChecklistRotas(); }
     if(b.dataset.v==='mapas') renderRegioesList();
+    if(b.dataset.v==='relatorio') buildRelTipoFiltroChips();
   });
 });
 
@@ -542,7 +597,7 @@ var BotaoFonte = L.Control.extend({
   }
 });
 map.addControl(new BotaoFonte());
-var mapaFiltro = {tipo:'todos', risco:'todos', equipe:'todos', rotas:'todas'};
+var mapaFiltro = {tipo:'todos', risco:'todos', equipe:'todos', rotas:'todas', pontosRef:'mostrar'};
 function buildMapaFiltroTipo(){
   var chips=[{k:'todos',l:'Todos'}].concat(TIPOS_EVENTO.map(function(t){return{k:t.tipo,l:t.ic};}));
   document.getElementById('mapaFiltroTipo').innerHTML = chips.map(function(c){
@@ -571,12 +626,14 @@ function buildMapaFiltroEquipeSelects(){
 }
 document.getElementById('mapaFiltroEquipe').addEventListener('change', function(){ mapaFiltro.equipe=this.value; renderMapa(); });
 document.getElementById('mapaFiltroRotas').addEventListener('change', function(){ mapaFiltro.rotas=this.value; renderMapa(); });
+document.getElementById('mapaFiltroPontosRef').addEventListener('change', function(){ mapaFiltro.pontosRef=this.value; renderMapa(); });
 buildMapaFiltroTipo(); buildMapaFiltroRisco(); buildMapaFiltroEquipeSelects();
 
 function renderMapa(){
   mapLayer.clearLayers();
   db.ocorrencias.forEach(function(o){
     if(o.lat==null) return;
+    if(o.duplicadaDe) return;
     if(mapaFiltro.tipo!=='todos' && o.tipo!==mapaFiltro.tipo) return;
     if(mapaFiltro.risco!=='todos' && String(o.risco)!==mapaFiltro.risco) return;
     var equipesAtivas = (o.empenhos||[]).filter(function(e){return e.status!=='encerrado';}).map(function(e){return e.equipeNome;});
@@ -610,6 +667,18 @@ function renderMapa(){
         .bindTooltip(eq.nome+' — últ. atualização '+fmtData(eq.ultimaPosicao.dataHora));
     }
   });
+  if(mapaFiltro.pontosRef!=='ocultar'){
+    (db.pontosReferencia||[]).forEach(function(p){
+      if(p.lat==null) return;
+      var ic = L.divIcon({html:'<div style="font-size:18px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">🏢</div>',className:'',iconSize:[22,22]});
+      var contatoTxt = p.contato && (p.contato.nome||p.contato.telefone) ?
+        '<br>Contato: '+(p.contato.nome||'—')+(p.contato.telefone?' — '+p.contato.telefone:'') : '';
+      L.marker([p.lat,p.lng],{icon:ic}).addTo(mapLayer).bindPopup(
+        '<b>'+(p.nome||'Ponto de referência')+'</b>'+(p.re?'<br>RE: '+p.re:'')+contatoTxt+
+        (p.endereco?'<br>'+p.endereco:'')
+      );
+    });
+  }
 }
 renderMapa();
 map.on('click', function(e){ novaOcorrenciaNoMapa(e.latlng.lat, e.latlng.lng); });
@@ -637,6 +706,7 @@ function ocorrenciasFiltradas(){
   var ate = document.getElementById('fDataAte').value;
   var status = document.getElementById('fStatus').value;
   return db.ocorrencias.filter(function(o){
+    if(o.duplicadaDe) return false;
     if(tipoFiltroAtivo!=='todos' && o.tipo!==tipoFiltroAtivo) return false;
     if(status==='abertas' && o.risco===0) return false;
     if(status==='resolvidas' && o.risco!==0) return false;
@@ -677,6 +747,22 @@ document.getElementById('btnNovaOcc').addEventListener('click', function(){
   document.querySelector('aside button[data-v="mapa"]').click();
 });
 
+function marcarDuplicata(idDuplicata, idOriginal){
+  var dup = db.ocorrencias.find(function(x){return x.id===idDuplicata;});
+  var orig = db.ocorrencias.find(function(x){return x.id===idOriginal;});
+  if(!dup || !orig || dup.id===orig.id) return false;
+  orig.empenhos = (orig.empenhos||[]).concat(dup.empenhos||[]);
+  orig.historico = (orig.historico||[]).concat(dup.historico||[])
+    .sort(function(a,b){ return (a.dataHora||'').localeCompare(b.dataHora||''); });
+  if(dup.vitimas && dup.vitimas.quantidade>(orig.vitimas.quantidade||0)) orig.vitimas.quantidade = dup.vitimas.quantidade;
+  if(dup.risco>orig.risco && dup.risco>0) orig.risco = dup.risco;
+  orig.historico.push({dataHora:nowISO(), risco:orig.risco, observacao:'🔁 Mesclada com ocorrência duplicada ('+tipoInfo(dup.tipo).l+', criada '+fmtData(dup.criadoEm)+')', autor:'quartel', origem:'quartel'});
+  dup.duplicadaDe = idOriginal;
+  orig.duplicatas = orig.duplicatas||[]; if(orig.duplicatas.indexOf(idDuplicata)<0) orig.duplicatas.push(idDuplicata);
+  saveDB(db);
+  return true;
+}
+
 function abrirOccModal(id){
   var o = db.ocorrencias.find(function(x){return x.id===id;});
   var body = document.getElementById('modalBody');
@@ -695,10 +781,42 @@ function abrirOccModal(id){
       (e.horaChegada?' · Chegada: '+fmtData(e.horaChegada):'')+
       (e.horaEncerramento?' · Encerrada: '+fmtData(e.horaEncerramento):'')+'</div>';
   }).join('') || '<div style="color:var(--sub);font-size:12px">Nenhuma equipe empenhada</div>';
+  var possiveisDup = possiveisDuplicatas(o);
+  var duplicatasIds = o.duplicatas||[];
+  var duplicatasHtml = duplicatasIds.map(function(did){
+    var d = db.ocorrencias.find(function(x){return x.id===did;});
+    if(!d) return '';
+    return '<div class="histitem">'+tipoInfo(d.tipo).ic+' '+tipoInfo(d.tipo).l+' — criada '+fmtData(d.criadoEm)+' (mesclada aqui)</div>';
+  }).join('');
+  var vinculadasIds = o.vinculadas||[];
+  var vinculadasHtml = vinculadasIds.map(function(vid){
+    var v = db.ocorrencias.find(function(x){return x.id===vid;});
+    if(!v) return '';
+    return '<div class="histitem" style="display:flex;justify-content:space-between;align-items:center">'+
+      '<span style="cursor:pointer" data-abrir="'+v.id+'">'+tipoInfo(v.tipo).ic+' '+tipoInfo(v.tipo).l+' — '+fmtData(v.criadoEm)+' — '+(v.observacao||'sem observação')+'</span>'+
+      '<button type="button" class="btn sm" data-desvincular="'+v.id+'" style="padding:2px 8px">✕</button></div>';
+  }).join('') || '<div style="color:var(--sub);font-size:12px">Nenhuma vinculada</div>';
+  var candidatasVinculo = db.ocorrencias.filter(function(x){return x.id!==o.id && vinculadasIds.indexOf(x.id)<0;});
+  var vincularOptsHtml = candidatasVinculo.map(function(x){
+    return '<option value="'+x.id+'">'+tipoInfo(x.tipo).ic+' '+tipoInfo(x.tipo).l+' — '+fmtData(x.criadoEm)+' — '+localTexto(x)+'</option>';
+  }).join('');
+  var avisoDupHtml = '';
+  if(possiveisDup.length){
+    avisoDupHtml = '<div class="card" style="background:#3A2A00;border:1px solid var(--amar);margin-bottom:12px">'+
+      '<b style="color:var(--amar)">⚠️ Possível(is) duplicata(s) por perto</b>'+
+      '<div style="font-size:12px;color:var(--sub);margin:4px 0 8px">Mesmo tipo, a menos de 150m e criada(s) em até 48h de diferença — pode ser o mesmo evento registrado por outra equipe.</div>'+
+      possiveisDup.map(function(d){
+        return '<div class="histitem" style="display:flex;justify-content:space-between;align-items:center">'+
+          '<span style="cursor:pointer" data-abrir="'+d.id+'">'+tipoInfo(d.tipo).ic+' '+tipoInfo(d.tipo).l+' — '+fmtData(d.criadoEm)+' — '+(d.observacao||'sem observação')+'</span>'+
+          '<button type="button" class="btn sm" data-marcar-dup="'+d.id+'" style="padding:2px 8px;background:var(--amar);color:#1C1C1E">Marcar como duplicata</button></div>';
+      }).join('')+
+    '</div>';
+  }
 
   body.innerHTML =
     '<button class="closebtn" id="mClose">✕</button>'+
     '<h2 style="margin:0 0 14px">Ocorrência</h2>'+
+    avisoDupHtml+
     '<label class="lbl">Tipo</label><div class="chiprow" id="mTipoChips" style="flex-wrap:wrap">'+tipoChipsHtml+'</div>'+
     '<label class="lbl">Risco (0-5)</label>'+
     '<div class="chiprow" id="mRiscoChips">'+[0,1,2,3,4,5].map(function(r){
@@ -713,6 +831,12 @@ function abrirOccModal(id){
     '<label class="lbl">Obs. vítimas / via</label><textarea id="mVitObs">'+((o.vitimas.observacao||'')+(o.viaObstruida.observacao?(' | '+o.viaObstruida.observacao):''))+'</textarea>'+
     '<label class="lbl">Recursos necessários</label><div id="mRecTags">'+recTags+'</div>'+
     '<button class="btn primary" id="btnSalvarOcc" style="margin-top:10px">💾 Salvar / Reativar</button>'+
+    '<h3 class="sec">🔗 Ocorrências vinculadas</h3>'+vinculadasHtml+
+    '<div style="display:flex;gap:6px;margin-top:8px">'+
+      '<select id="mVincularSel" style="flex:1"><option value="">Selecione uma ocorrência…</option>'+vincularOptsHtml+'</select>'+
+      '<button type="button" class="btn sm" id="btnVincular">Vincular</button>'+
+    '</div>'+
+    (duplicatasIds.length ? '<h3 class="sec">🔁 Duplicatas mescladas aqui</h3>'+duplicatasHtml : '')+
     '<h3 class="sec">Empenhos</h3>'+empHtml+
     '<h3 class="sec">Histórico</h3>'+histHtml;
 
@@ -747,6 +871,36 @@ function abrirOccModal(id){
     });
   });
   document.getElementById('mClose').addEventListener('click', fecharModal);
+  document.querySelectorAll('[data-desvincular]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var vid = b.dataset.desvincular;
+      o.vinculadas = (o.vinculadas||[]).filter(function(x){return x!==vid;});
+      var v = db.ocorrencias.find(function(x){return x.id===vid;});
+      if(v) v.vinculadas = (v.vinculadas||[]).filter(function(x){return x!==o.id;});
+      saveDB(db); abrirOccModal(id);
+    });
+  });
+  document.querySelectorAll('[data-abrir]').forEach(function(s){
+    s.addEventListener('click', function(){ abrirOccModal(s.dataset.abrir); });
+  });
+  document.querySelectorAll('[data-marcar-dup]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var outraId = b.dataset.marcarDup;
+      if(!confirm('Marcar esta ocorrência como duplicata da outra? As equipes empenhadas e o histórico serão movidos pra ocorrência original, e esta some do mapa.')) return;
+      marcarDuplicata(id, outraId);
+      toast('Marcada como duplicata ✅'); abrirOccModal(outraId); renderMapa(); renderTabelaOcorrencias();
+    });
+  });
+  var btnVincular = document.getElementById('btnVincular');
+  if(btnVincular) btnVincular.addEventListener('click', function(){
+    var alvoId = document.getElementById('mVincularSel').value;
+    if(!alvoId){ toast('Selecione uma ocorrência'); return; }
+    var alvo = db.ocorrencias.find(function(x){return x.id===alvoId;});
+    if(!alvo) return;
+    o.vinculadas = o.vinculadas||[]; if(o.vinculadas.indexOf(alvoId)<0) o.vinculadas.push(alvoId);
+    alvo.vinculadas = alvo.vinculadas||[]; if(alvo.vinculadas.indexOf(o.id)<0) alvo.vinculadas.push(o.id);
+    saveDB(db); toast('Vinculada ✅'); abrirOccModal(id);
+  });
   document.getElementById('btnSalvarOcc').addEventListener('click', function(){
     var agora = nowISO();
     var eraResolvida = o.risco===0;
@@ -758,9 +912,10 @@ function abrirOccModal(id){
     o.viaObstruida.obstruida = novaVia;
     o.recursosNecessarios = recSel;
     o.atualizadoEm = agora;
-    if(eraResolvida && novoRisco>0){ o.resolvidaEm = null; }
+    var reativada = eraResolvida && novoRisco>0;
+    if(reativada){ o.resolvidaEm = null; o.reativacoes = o.reativacoes||[]; o.reativacoes.push({dataHora:agora, autor:'quartel', origem:'quartel'}); }
     if(novoRisco===0){ o.resolvidaEm = agora; }
-    o.historico.push({dataHora:agora, risco:novoRisco, observacao:o.observacao, autor:'quartel', origem:'quartel'});
+    o.historico.push({dataHora:agora, risco:novoRisco, observacao:(reativada?'🔁 Reativada — ':'')+o.observacao, autor:'quartel', origem:'quartel', reativacao:reativada});
     saveDB(db); fecharModal(); renderTabelaOcorrencias(); renderMapa();
     toast('Ocorrência atualizada ✅');
   });
@@ -1020,6 +1175,96 @@ document.getElementById('btnExportarRotas').addEventListener('click', function()
   toast('Rota(s) exportada(s) ✅');
 });
 
+// ════════════════════════════════════════
+// RELATÓRIO
+// ════════════════════════════════════════
+var relTipoFiltro = 'todos';
+function buildRelTipoFiltroChips(){
+  var chips=[{k:'todos',l:'Todos'}].concat(TIPOS_EVENTO.map(function(t){return{k:t.tipo,l:t.ic+' '+t.l};}));
+  document.getElementById('relTipoFiltroChips').innerHTML = chips.map(function(c){
+    return '<div class="chip'+(c.k===relTipoFiltro?' on':'')+'" data-k="'+c.k+'">'+c.l+'</div>';
+  }).join('');
+  document.querySelectorAll('#relTipoFiltroChips .chip').forEach(function(ch){
+    ch.addEventListener('click', function(){ relTipoFiltro = ch.dataset.k; buildRelTipoFiltroChips(); });
+  });
+}
+function localTexto(o){
+  if(o.endereco) return o.endereco + (o.bairro?', '+o.bairro:'') + (o.municipio?' — '+o.municipio:'');
+  if(o.lat!=null) return o.lat.toFixed(5)+', '+o.lng.toFixed(5);
+  return '—';
+}
+function ciclosDaOcorrencia(o){
+  // reconstrói cada "abertura" (criação + cada reativação) e seu fechamento (quando risco volta a 0)
+  var eventos = [{dataHora:o.criadoEm, tipo:'abertura'}];
+  (o.historico||[]).forEach(function(h){
+    if(h.reativacao) eventos.push({dataHora:h.dataHora, tipo:'abertura'});
+    else if(h.risco===0) eventos.push({dataHora:h.dataHora, tipo:'fechamento'});
+  });
+  eventos.sort(function(a,b){ return (a.dataHora||'').localeCompare(b.dataHora||''); });
+  var ciclos = [], aberturaAtual = null;
+  eventos.forEach(function(e){
+    if(e.tipo==='abertura'){ if(!aberturaAtual) aberturaAtual = e.dataHora; }
+    else if(aberturaAtual){ ciclos.push({inicio:aberturaAtual, fim:e.dataHora}); aberturaAtual = null; }
+  });
+  if(aberturaAtual) ciclos.push({inicio:aberturaAtual, fim:null});
+  return ciclos;
+}
+function linhasParaRelatorio(){
+  var de = document.getElementById('fRelDataDe').value;
+  var ate = document.getElementById('fRelDataAte').value;
+  var status = document.getElementById('fRelStatus').value;
+  var linhas = [];
+  db.ocorrencias.forEach(function(o){
+    if(o.duplicadaDe) return;
+    if(relTipoFiltro!=='todos' && o.tipo!==relTipoFiltro) return;
+    var ciclos = ciclosDaOcorrencia(o);
+    ciclos.forEach(function(c, idx){
+      var dataLinha = (c.inicio||'').slice(0,10);
+      if(de && dataLinha < de) return;
+      if(ate && dataLinha > ate) return;
+      var estaAberta = c.fim===null;
+      if(status==='abertas' && !estaAberta) return;
+      if(status==='resolvidas' && estaAberta) return;
+      linhas.push({ocorrencia:o, inicio:c.inicio, fim:c.fim, reaberta: idx>0, aberta: estaAberta});
+    });
+  });
+  linhas.sort(function(a,b){ return (a.inicio||'').localeCompare(b.inicio||''); });
+  return linhas;
+}
+document.getElementById('btnGerarRelatorio').addEventListener('click', function(){
+  var linhasDados = linhasParaRelatorio();
+  var totalVitimas = linhasDados.reduce(function(acc,l){ return acc + (l.ocorrencia.vitimas&&l.ocorrencia.vitimas.quantidade?l.ocorrencia.vitimas.quantidade:0); },0);
+  var reaberturasCount = linhasDados.filter(function(l){return l.reaberta;}).length;
+  var de = document.getElementById('fRelDataDe').value || '(sem início)';
+  var ate = document.getElementById('fRelDataAte').value || '(sem fim)';
+  var linhasHtml = linhasDados.map(function(l){
+    var o = l.ocorrencia;
+    var equipesNomes = (o.empenhos||[]).map(function(e){return e.equipeNome;}).join(', ') || '—';
+    var statusTxt = l.aberta ? (o.risco+' — '+RISCO_LABEL[o.risco]) : '0 — Resolvida';
+    return '<tr><td>'+fmtData(l.inicio)+(l.reaberta?' <span class="badge" style="background:var(--amar);color:#1C1C1E">🔁 reaberta</span>':'')+'</td>'+
+      '<td>'+tipoInfo(o.tipo).ic+' '+tipoInfo(o.tipo).l+'</td>'+
+      '<td>'+localTexto(o)+'</td>'+
+      '<td>'+statusTxt+'</td>'+
+      '<td style="text-align:center">'+(o.vitimas&&o.vitimas.quantidade?o.vitimas.quantidade:0)+'</td>'+
+      '<td>'+equipesNomes+'</td>'+
+      '<td>'+(o.observacao||'')+'</td></tr>';
+  }).join('');
+  document.getElementById('relatorioResultado').innerHTML =
+    '<h3 style="margin-top:0">Período: '+de+' até '+ate+'</h3>'+
+    '<div style="font-size:13px;color:var(--sub);margin-bottom:8px">'+linhasDados.length+' evento(s) no relatório'+
+    (reaberturasCount?' (incluindo '+reaberturasCount+' reativação(ões) contadas como novo evento)':'')+
+    ' — total de '+totalVitimas+' vítima(s)</div>'+
+    '<table><thead><tr><th>Data</th><th>Tipo</th><th>Local</th><th>Status/Risco</th><th>Vítimas</th><th>Equipe(s)</th><th>Observação</th></tr></thead>'+
+    '<tbody>'+(linhasHtml || '<tr><td colspan="7" style="text-align:center;color:var(--sub)">Nenhuma ocorrência no filtro</td></tr>')+'</tbody></table>';
+});
+document.getElementById('btnImprimirRelatorio').addEventListener('click', function(){
+  if(document.getElementById('relatorioResultado').querySelector('table')===null){
+    toast('Gere o relatório antes de imprimir');
+    return;
+  }
+  window.print();
+});
+
 document.getElementById('btnGerarGeral').addEventListener('click', function(){
   var ids = Array.from(document.querySelectorAll('.ckGeral:checked')).map(function(c){return c.value;});
   if(!ids.length){ toast('Marque ao menos uma ocorrência'); return; }
@@ -1075,6 +1320,99 @@ function mergeArray(local, importados, contador){
   });
   return local;
 }
+function chaveHist(h){ return [h.dataHora,h.risco,h.observacao,h.origem,h.autor,!!h.reativacao].join('|'); }
+function unionHistorico(h1,h2){
+  var vistos = {}, out = [];
+  (h1||[]).concat(h2||[]).forEach(function(h){
+    var k = chaveHist(h);
+    if(!vistos[k]){ vistos[k]=true; out.push(h); }
+  });
+  out.sort(function(a,b){ return (a.dataHora||'').localeCompare(b.dataHora||''); });
+  return out;
+}
+function uniaoIds(a,b){
+  var out = (a||[]).slice();
+  (b||[]).forEach(function(id){ if(out.indexOf(id)<0) out.push(id); });
+  return out;
+}
+var ORDEM_STATUS_EMP = {acionado:1, deslocamento:1.5, no_local:2, encerrado:3};
+function statusMaisAvancado(s1,s2){
+  var v1 = ORDEM_STATUS_EMP[s1]||0, v2 = ORDEM_STATUS_EMP[s2]||0;
+  return v1>=v2 ? s1 : s2;
+}
+function mesclarEmpenhos(e1,e2){
+  var porId = {}, ordem = [];
+  (e1||[]).concat(e2||[]).forEach(function(e){
+    if(!porId[e.id]){ porId[e.id]=Object.assign({},e); ordem.push(e.id); }
+    else{
+      var ex = porId[e.id];
+      porId[e.id] = {
+        id:e.id,
+        ocorrenciaId: ex.ocorrenciaId||e.ocorrenciaId,
+        equipeNome: ex.equipeNome||e.equipeNome,
+        equipeId: ex.equipeId||e.equipeId,
+        rotaDestino: ex.rotaDestino||e.rotaDestino,
+        horaAcionamento: ex.horaAcionamento||e.horaAcionamento,
+        horaDeslocamento: ex.horaDeslocamento||e.horaDeslocamento,
+        horaChegada: ex.horaChegada||e.horaChegada,
+        horaEncerramento: ex.horaEncerramento||e.horaEncerramento,
+        observacao: (ex.observacao&&ex.observacao.length>=(e.observacao||'').length) ? ex.observacao : e.observacao,
+        status: statusMaisAvancado(ex.status,e.status)
+      };
+    }
+  });
+  return ordem.map(function(id){return porId[id];});
+}
+function mesclarOcorrencia(a,b){
+  var m = {};
+  m.id = a.id;
+  m.criadoEm = a.criadoEm || b.criadoEm;
+  m.criadoPor = a.criadoPor || b.criadoPor;
+  m.origem = a.origem || b.origem;
+  m.lat = a.lat!=null ? a.lat : b.lat;
+  m.lng = a.lng!=null ? a.lng : b.lng;
+  m.endereco = a.endereco || b.endereco;
+  m.bairro = a.bairro || b.bairro;
+  m.municipio = a.municipio || b.municipio;
+  m.historico = unionHistorico(a.historico, b.historico);
+  var ultimo = m.historico[m.historico.length-1];
+  var maisRecente = (a.atualizadoEm||'') >= (b.atualizadoEm||'') ? a : b;
+  m.risco = ultimo ? ultimo.risco : Math.max(a.risco||0,b.risco||0);
+  m.tipo = maisRecente.tipo || a.tipo || b.tipo;
+  m.observacao = ultimo ? (ultimo.observacao||'').replace(/^🔁 Reativada — /,'') : (maisRecente.observacao||'');
+  m.vitimas = {
+    quantidade: Math.max((a.vitimas&&a.vitimas.quantidade)||0, (b.vitimas&&b.vitimas.quantidade)||0),
+    observacao: (maisRecente.vitimas&&maisRecente.vitimas.observacao) || (a.vitimas&&a.vitimas.observacao) || (b.vitimas&&b.vitimas.observacao) || ''
+  };
+  m.viaObstruida = {
+    obstruida: !!((a.viaObstruida&&a.viaObstruida.obstruida) || (b.viaObstruida&&b.viaObstruida.obstruida)),
+    observacao: (maisRecente.viaObstruida&&maisRecente.viaObstruida.observacao) || (a.viaObstruida&&a.viaObstruida.observacao) || (b.viaObstruida&&b.viaObstruida.observacao) || ''
+  };
+  m.recursosNecessarios = uniaoIds(a.recursosNecessarios, b.recursosNecessarios);
+  m.empenhos = mesclarEmpenhos(a.empenhos, b.empenhos);
+  m.vinculadas = uniaoIds(a.vinculadas, b.vinculadas);
+  m.duplicatas = uniaoIds(a.duplicatas, b.duplicatas);
+  m.duplicadaDe = a.duplicadaDe || b.duplicadaDe || null;
+  m.reativacoes = (function(){
+    var vistos={}, out=[];
+    (a.reativacoes||[]).concat(b.reativacoes||[]).forEach(function(r){
+      var k = r.dataHora+'|'+r.origem; if(!vistos[k]){vistos[k]=true; out.push(r);}
+    });
+    return out;
+  })();
+  m.atualizadoEm = maisRecente.atualizadoEm;
+  m.resolvidaEm = m.risco===0 ? (ultimo ? ultimo.dataHora : (a.resolvidaEm||b.resolvidaEm)) : null;
+  return m;
+}
+function mesclarOcorrencias(local, importadas, contador){
+  local = local||[];
+  importadas.forEach(function(item){
+    var idx = local.findIndex(function(x){return x.id===item.id;});
+    if(idx>=0){ local[idx] = mesclarOcorrencia(local[idx], item); contador.atualizados++; }
+    else { local.push(item); contador.novos++; }
+  });
+  return local;
+}
 document.getElementById('btnImportarBtn').addEventListener('click', function(){ document.getElementById('fileImportar').click(); });
 document.getElementById('fileImportar').addEventListener('change', function(e){
   var file = e.target.files && e.target.files[0]; if(!file) return;
@@ -1082,8 +1420,24 @@ document.getElementById('fileImportar').addEventListener('change', function(e){
   reader.onload = function(ev){
     try{
       var pacote = JSON.parse(ev.target.result);
+
+      if(pacote.tipo==='pontos-referencia'){
+        db.pontosReferencia = db.pontosReferencia||[];
+        var novos=0, atualizados=0;
+        (pacote.pontos||[]).forEach(function(p){
+          var idx = db.pontosReferencia.findIndex(function(x){return x.id===p.id;});
+          if(idx>=0){ db.pontosReferencia[idx]=p; atualizados++; } else { db.pontosReferencia.push(p); novos++; }
+        });
+        saveDB(db);
+        document.getElementById('importResumo').innerHTML =
+          'Pontos de referência importados: '+novos+' novos, '+atualizados+' atualizados (origem: '+(pacote.origem||'—')+')';
+        renderMapa();
+        toast('Pontos de referência importados ✅');
+        return;
+      }
+
       var contador = {novos:0, atualizados:0, conflitos:0};
-      db.ocorrencias = mergeArray(db.ocorrencias, pacote.ocorrencias||[], contador);
+      db.ocorrencias = mesclarOcorrencias(db.ocorrencias, pacote.ocorrencias||[], contador);
       db.trajetorias = (db.trajetorias||[]).concat((pacote.trajetorias||[]).filter(function(tr){
         return !db.trajetorias.some(function(t){return t.id===tr.id;});
       }));
@@ -1096,8 +1450,7 @@ document.getElementById('fileImportar').addEventListener('change', function(e){
       });
       saveDB(db);
       document.getElementById('importResumo').innerHTML =
-        'Importado: '+contador.novos+' novas, '+contador.atualizados+' atualizadas'+
-        (contador.conflitos?', '+contador.conflitos+' mantidas (versão local mais recente)':'');
+        'Importado: '+contador.novos+' novas, '+contador.atualizados+' mescladas (campo a campo, nada foi perdido)';
       renderMapa(); renderTabelaOcorrencias(); renderEquipesList();
       toast('Importação concluída ✅');
     }catch(err){ toast('Erro ao importar arquivo'); }
