@@ -138,16 +138,31 @@
     <!-- ROTA -->
     <div class="view" id="v-rota">
       <div class="card" style="text-align:center;">
-        <div id="rotaStatusTxt" style="font-size:13px;color:var(--sub);margin-bottom:10px;">Rota parada</div>
+        <div id="rotaStatusTxt" style="font-size:13px;color:var(--sub);margin-bottom:6px;">Rota parada</div>
+        <div id="rotaInfoBox" style="display:none;font-size:13px;margin-bottom:10px">
+          <span id="rotaTempo">00:00</span> · <span id="rotaDistancia">0,0 km</span>
+        </div>
         <div class="btnrow">
           <button class="btn ok" id="btnRotaStart">▶️ Iniciar rota</button>
           <button class="btn warn" id="btnRotaStop" style="display:none">⏹️ Parar rota</button>
         </div>
+        <button class="btn primary" id="btnRotaCriarEvento" style="display:none;margin-top:10px;width:100%">➕ Registrar evento aqui</button>
+      </div>
+      <div class="card" id="rotaRadarCard" style="display:none">
+        <h3 class="sec" style="margin-top:0">📡 Pontos registrados por perto</h3>
+        <label class="lbl">Raio de busca: <span id="rotaRaioLbl">300m</span></label>
+        <input type="range" id="rotaRaioSlider" min="50" max="2000" step="50" value="300" style="width:100%">
+        <div id="rotaRadarLista" style="margin-top:8px"></div>
       </div>
     </div>
 
-    <!-- MAPAS OFFLINE -->
-    <div class="view" id="v-mapas">
+    <!-- SYNC -->
+    <div class="view" id="v-sync">
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">Minha equipe</h3>
+        <input type="text" id="fEquipeNome" placeholder="Nome da equipe (ex: Resgate 1)">
+        <button class="btn primary" id="btnSalvarEquipe">Salvar</button>
+      </div>
       <div class="card">
         <h3 class="sec" style="margin-top:0">Baixar mapa de uma região</h3>
         <label class="lbl">Nome do município/região</label>
@@ -165,15 +180,6 @@
         <h3 class="sec" style="margin-top:0">Importar mapa recebido do outro app</h3>
         <button class="btn" id="btnImportarMapaBtn">📥 Selecionar arquivo (.mvd)</button>
         <input type="file" id="fileImportarMapa" class="fileinput" accept=".mvd,.json">
-      </div>
-    </div>
-
-    <!-- SYNC -->
-    <div class="view" id="v-sync">
-      <div class="card">
-        <h3 class="sec" style="margin-top:0">Minha equipe</h3>
-        <input type="text" id="fEquipeNome" placeholder="Nome da equipe (ex: Resgate 1)">
-        <button class="btn primary" id="btnSalvarEquipe">Salvar</button>
       </div>
       <div class="card">
         <h3 class="sec" style="margin-top:0">Enviar dados para o Quartel</h3>
@@ -193,7 +199,6 @@
     <button data-v="missoes"><span class="ic">🎯</span>Missões</button>
     <button data-v="avisos"><span class="ic">⚠️</span>Avisos</button>
     <button data-v="rota"><span class="ic">📡</span>Rota</button>
-    <button data-v="mapas"><span class="ic">🗂️</span>Mapas</button>
     <button data-v="sync"><span class="ic">🔄</span>Sync</button>
   </nav>
 </div>
@@ -259,10 +264,11 @@ function fmtDataCurta(iso){ return fmtData(iso); }
 var DBKEY = 'eventosCampoDB';
 function loadDB(){
   try{ var d = JSON.parse(localStorage.getItem(DBKEY)); if(d) return d; }catch(e){}
-  return {ocorrencias:[], equipes:[], pacotesRecebidos:[], minhaEquipe:'', trajetorias:[], contadorExport:{}};
+  return {ocorrencias:[], equipes:[], pacotesRecebidos:[], minhaEquipe:'', trajetorias:[], contadorExport:{}, pontosReferencia:[]};
 }
 function saveDB(db){ localStorage.setItem(DBKEY, JSON.stringify(db)); }
 var db = loadDB();
+db.pontosReferencia = db.pontosReferencia || [];
 
 function uid(p){ return p+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function nowISO(){ return new Date().toISOString(); }
@@ -434,16 +440,21 @@ function importarRegiaoArquivo(file){
 var OfflineTileLayer = L.TileLayer.extend({
   createTile: function(coords, done){
     var tile = document.createElement('img');
+    tile.setAttribute('role','presentation');
     var z=coords.z, x=coords.x, y=coords.y, fonte=fonteAtual;
+    tile.onload = function(){ done(null, tile); };
+    tile.onerror = function(e){ done(e, tile); };
     lerTile(fonte,z,x,y).then(function(blob){
-      if(blob){ tile.src = URL.createObjectURL(blob); done(null, tile); }
-      else {
+      if(blob){
+        try{ tile.src = URL.createObjectURL(blob); }
+        catch(e){ tile.src = tileUrl(fonte,z,x,y); }
+      } else {
         var url = tileUrl(fonte,z,x,y);
-        tile.onload = function(){ done(null, tile); };
-        tile.onerror = function(e){ done(e, tile); };
         tile.src = url;
-        fetch(url).then(function(r){return r.blob();}).then(function(blob){ salvarTile(fonte,z,x,y,blob); }).catch(function(){});
+        fetch(url).then(function(r){return r.blob();}).then(function(b){ salvarTile(fonte,z,x,y,b); }).catch(function(){});
       }
+    }).catch(function(){
+      tile.src = tileUrl(fonte,z,x,y);
     });
     return tile;
   }
@@ -497,7 +508,7 @@ document.querySelectorAll('nav button').forEach(function(b){
     if(b.dataset.v==='mapa'){ setTimeout(function(){map.invalidateSize(); renderMapa();},50); }
     if(b.dataset.v==='missoes') renderMissoes();
     if(b.dataset.v==='avisos') renderAvisos();
-    if(b.dataset.v==='mapas') renderRegioesList();
+    if(b.dataset.v==='sync') renderRegioesList();
   });
 });
 document.getElementById('hSub').textContent = 'Equipe: ' + (db.minhaEquipe || '—');
@@ -582,6 +593,14 @@ function renderMapa(){
       var latlngs = tr.pontos.map(function(p){return [p.lat,p.lng];});
       L.polyline(latlngs, {color:'#FF8A3D', weight:3, opacity:.8}).addTo(mapLayer);
     }
+  });
+  // pontos de referência (recebidos do Quartel)
+  (db.pontosReferencia||[]).forEach(function(p){
+    if(p.lat==null) return;
+    var ic = L.divIcon({html:'<div style="font-size:18px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">🏢</div>',className:'',iconSize:[20,20]});
+    var m = L.marker([p.lat,p.lng],{icon:ic}).addTo(mapLayer);
+    m.bindPopup('<b>'+(p.nome||'Ponto de referência')+'</b>'+(p.re?'<br>RE: '+p.re:'')+
+      (p.endereco?'<br>'+p.endereco:'')+(p.contato&&p.contato.nome?'<br>Contato: '+p.contato.nome+(p.contato.telefone?' — '+p.contato.telefone:''):''));
   });
 }
 buildMapaFiltro();
@@ -775,12 +794,15 @@ document.getElementById('modalBg').addEventListener('click', function(e){ if(e.t
 // ════════════════════════════════════════
 function renderAvisos(){
   var el = document.getElementById('avisosList');
-  var lista = db.ocorrencias.filter(function(o){ return o.origem==='geral' || (o.geral===true); });
+  var lista = db.ocorrencias.filter(function(o){ return o.origem==='geral' || (o.geral===true); })
+    .sort(function(a,b){ return (b.atualizadoEm||b.criadoEm||'').localeCompare(a.atualizadoEm||a.criadoEm||''); });
   if(!lista.length){ el.innerHTML = '<div class="empty"><div class="ico">⚠️</div>Nenhum aviso geral recebido</div>'; return; }
-  el.innerHTML = lista.map(function(o){
+  el.innerHTML = lista.map(function(o, idx){
     return '<div class="occcard" style="border-left-color:'+RISCO_COR[o.risco]+'">'+
       '<div class="top"><span class="tipo">'+tipoInfo(o.tipo).ic+' '+tipoInfo(o.tipo).l+'</span>'+
       '<span class="risco" style="background:'+RISCO_COR[o.risco]+'">'+o.risco+'</span></div>'+
+      (idx===0 ? '<div class="badge" style="background:#3B82F6">🆕 Mais recente</div>' : '')+
+      (o.origem==='auto-cota' ? '<div class="badge" style="background:#0EA5E9">🌊 Gerado automaticamente por cota</div>' : '')+
       '<div class="meta">'+(o.observacao||'')+'</div>'+
       (o.viaObstruida && o.viaObstruida.obstruida ? '<div class="badge">🚧 Via obstruída</div>' : '')+
       '</div>';
@@ -790,25 +812,81 @@ function renderAvisos(){
 // ════════════════════════════════════════
 // ROTA (trajetória GPS)
 // ════════════════════════════════════════
-var rotaWatchId = null, rotaAtual = null;
+var rotaWatchId = null, rotaAtual = null, rotaPolyline = null, rotaTimerInterval = null, rotaRaioAtual = 300;
+function calcularDistanciaTotal(pontos){
+  var total = 0;
+  for(var i=1;i<pontos.length;i++){ total += distanciaMetros(pontos[i-1].lat,pontos[i-1].lng,pontos[i].lat,pontos[i].lng); }
+  return total;
+}
+function fmtTempoDecorrido(ms){
+  var s = Math.floor(ms/1000);
+  var h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  function p(n){return (n<10?'0':'')+n;}
+  return (h>0?p(h)+':':'')+p(m)+':'+p(sec);
+}
+function renderRadarProximos(lat,lng){
+  var raio = rotaRaioAtual;
+  var achados = db.ocorrencias.filter(function(o){
+    if(o.lat==null || o.duplicadaDe) return false;
+    return distanciaMetros(lat,lng,o.lat,o.lng) <= raio;
+  }).map(function(o){
+    return {o:o, dist: distanciaMetros(lat,lng,o.lat,o.lng)};
+  }).sort(function(a,b){ return a.dist-b.dist; });
+  var el = document.getElementById('rotaRadarLista');
+  if(!achados.length){ el.innerHTML = '<div style="color:var(--sub);font-size:12px">Nenhum ponto registrado neste raio</div>'; return; }
+  el.innerHTML = achados.map(function(a){
+    return '<div class="occcard" style="border-left-color:'+RISCO_COR[a.o.risco]+';padding:6px 8px;margin-bottom:6px">'+
+      '<div style="display:flex;justify-content:space-between;font-size:12px">'+
+      '<span>'+tipoInfo(a.o.tipo).ic+' '+tipoInfo(a.o.tipo).l+'</span><span style="color:var(--sub)">'+Math.round(a.dist)+'m</span></div>'+
+      '</div>';
+  }).join('');
+}
+document.getElementById('rotaRaioSlider').addEventListener('input', function(){
+  rotaRaioAtual = parseInt(this.value);
+  document.getElementById('rotaRaioLbl').textContent = rotaRaioAtual>=1000 ? (rotaRaioAtual/1000)+'km' : rotaRaioAtual+'m';
+  if(rotaAtual && rotaAtual.pontos.length){ var ult = rotaAtual.pontos[rotaAtual.pontos.length-1]; renderRadarProximos(ult.lat, ult.lng); }
+});
+document.getElementById('btnRotaCriarEvento').addEventListener('click', function(){
+  if(!rotaAtual || !rotaAtual.pontos.length){ toast('Aguarde capturar ao menos um ponto'); return; }
+  var ult = rotaAtual.pontos[rotaAtual.pontos.length-1];
+  formState.lat = ult.lat; formState.lng = ult.lng;
+  document.getElementById('gpsStatus').textContent = '📍 '+ult.lat.toFixed(5)+', '+ult.lng.toFixed(5)+' (capturado da rota)';
+  atualizarAvisoDuplicataCampo();
+  document.querySelector('nav [data-v="registrar"]').click();
+});
 document.getElementById('btnRotaStart').addEventListener('click', function(){
   if(!navigator.geolocation){ toast('GPS não disponível'); return; }
   rotaAtual = { id: uid('traj'), equipeNome: db.minhaEquipe||'', inicioEm: nowISO(), pontos: [] };
+  rotaPolyline = L.polyline([], {color:'#3B82F6', weight:4}).addTo(map);
   rotaWatchId = navigator.geolocation.watchPosition(function(pos){
+    var ll = [pos.coords.latitude, pos.coords.longitude];
     rotaAtual.pontos.push({lat:pos.coords.latitude, lng:pos.coords.longitude, dataHora: nowISO()});
-    atualizarMarcadorLive([pos.coords.latitude, pos.coords.longitude]);
-    document.getElementById('rotaStatusTxt').textContent = 'Gravando: '+rotaAtual.pontos.length+' pontos';
+    atualizarMarcadorLive(ll);
+    map.panTo(ll, {animate:true});
+    rotaPolyline.addLatLng(ll);
+    document.getElementById('rotaDistancia').textContent = (calcularDistanciaTotal(rotaAtual.pontos)/1000).toFixed(2)+' km';
+    renderRadarProximos(ll[0], ll[1]);
   }, function(err){}, {enableHighAccuracy:true, maximumAge:5000});
+  rotaTimerInterval = setInterval(function(){
+    document.getElementById('rotaTempo').textContent = fmtTempoDecorrido(Date.now() - new Date(rotaAtual.inicioEm).getTime());
+  }, 1000);
   document.getElementById('btnRotaStart').style.display='none';
   document.getElementById('btnRotaStop').style.display='block';
+  document.getElementById('btnRotaCriarEvento').style.display='block';
+  document.getElementById('rotaRadarCard').style.display='block';
+  document.getElementById('rotaInfoBox').style.display='block';
   document.getElementById('rotaStatusTxt').textContent = 'Gravando rota...';
 });
 document.getElementById('btnRotaStop').addEventListener('click', function(){
   if(rotaWatchId!=null) navigator.geolocation.clearWatch(rotaWatchId);
+  if(rotaTimerInterval) clearInterval(rotaTimerInterval);
   if(rotaAtual){ rotaAtual.fimEm = nowISO(); db.trajetorias.push(rotaAtual); saveDB(db); }
-  rotaAtual = null; rotaWatchId = null;
+  rotaAtual = null; rotaWatchId = null; rotaTimerInterval = null; rotaPolyline = null;
   document.getElementById('btnRotaStart').style.display='block';
   document.getElementById('btnRotaStop').style.display='none';
+  document.getElementById('btnRotaCriarEvento').style.display='none';
+  document.getElementById('rotaRadarCard').style.display='none';
+  document.getElementById('rotaInfoBox').style.display='none';
   document.getElementById('rotaStatusTxt').textContent = 'Rota salva';
   renderMapa();
 });
@@ -964,6 +1042,7 @@ document.getElementById('fileImportar').addEventListener('change', function(e){
       db.trajetorias = (db.trajetorias||[]).concat((pacote.trajetorias||[]).filter(function(tr){
         return !db.trajetorias.some(function(t){return t.id===tr.id;});
       }));
+      db.pontosReferencia = mergeArray(db.pontosReferencia, pacote.pontosReferencia||[]);
       saveDB(db);
       renderMapa(); renderMissoes(); renderAvisos();
       toast('Importado ✅');

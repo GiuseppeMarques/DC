@@ -98,6 +98,7 @@
     <button data-v="importar">📥 Importar</button>
     <button data-v="mapas">🗂️ Mapas offline</button>
     <button data-v="relatorio">📄 Relatório</button>
+    <button data-v="rios">🌊 Cotas de rio</button>
   </aside>
   <main>
 
@@ -243,6 +244,31 @@
       </div>
     </div>
 
+    <!-- COTAS DE RIO -->
+    <div class="view" id="v-rios">
+      <h2 class="pagetitle">Cotas de rio — monitoramento</h2>
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">Cadastrar rio / ponto de monitoramento</h3>
+        <label class="lbl">Nome (ex: Rio Itajaí-Açu — Ponte Central)</label>
+        <input type="text" id="fRioNome">
+        <div class="grid3">
+          <div><label class="lbl">Cota de atenção (m)</label><input type="number" step="0.01" id="fRioAtencao"></div>
+          <div><label class="lbl">Cota de alerta (m)</label><input type="number" step="0.01" id="fRioAlerta"></div>
+          <div><label class="lbl">Cota de inundação (m)</label><input type="number" step="0.01" id="fRioInundacao"></div>
+        </div>
+        <div class="grid2">
+          <div><label class="lbl">Latitude</label><input type="number" step="0.00001" id="fRioLat"></div>
+          <div><label class="lbl">Longitude</label><input type="number" step="0.00001" id="fRioLng"></div>
+        </div>
+        <button class="btn" id="btnRioUsarCentroMapa" type="button">🗺️ Usar centro do mapa atual</button>
+        <button class="btn primary" id="btnSalvarRio" style="margin-top:8px">💾 Cadastrar rio</button>
+      </div>
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">Rios monitorados</h3>
+        <div id="riosList"></div>
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -304,10 +330,11 @@ function possiveisDuplicatas(o){
 var DBKEY = 'eventosQuartelDB';
 function loadDB(){
   try{ var d = JSON.parse(localStorage.getItem(DBKEY)); if(d) return d; }catch(e){}
-  return {ocorrencias:[], equipes:[], trajetorias:[], pontosReferencia:[], contadorExport:{}};
+  return {ocorrencias:[], equipes:[], trajetorias:[], pontosReferencia:[], contadorExport:{}, riosMonitorados:[]};
 }
 function saveDB(db){ localStorage.setItem(DBKEY, JSON.stringify(db)); }
 var db = loadDB();
+db.riosMonitorados = db.riosMonitorados || [];
 function uid(p){ return p+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function nowISO(){ return new Date().toISOString(); }
 function fmtData(iso){ if(!iso) return '—'; var d=new Date(iso); function p(n){return (n<10?'0':'')+n;}
@@ -477,16 +504,21 @@ function importarRegiaoArquivo(file){
 var OfflineTileLayer = L.TileLayer.extend({
   createTile: function(coords, done){
     var tile = document.createElement('img');
+    tile.setAttribute('role','presentation');
     var z=coords.z, x=coords.x, y=coords.y, fonte=fonteAtual;
+    tile.onload = function(){ done(null, tile); };
+    tile.onerror = function(e){ done(e, tile); };
     lerTile(fonte,z,x,y).then(function(blob){
-      if(blob){ tile.src = URL.createObjectURL(blob); done(null, tile); }
-      else {
+      if(blob){
+        try{ tile.src = URL.createObjectURL(blob); }
+        catch(e){ tile.src = tileUrl(fonte,z,x,y); }
+      } else {
         var url = tileUrl(fonte,z,x,y);
-        tile.onload = function(){ done(null, tile); };
-        tile.onerror = function(e){ done(e, tile); };
         tile.src = url;
-        fetch(url).then(function(r){return r.blob();}).then(function(blob){ salvarTile(fonte,z,x,y,blob); }).catch(function(){});
+        fetch(url).then(function(r){return r.blob();}).then(function(b){ salvarTile(fonte,z,x,y,b); }).catch(function(){});
       }
+    }).catch(function(){
+      tile.src = tileUrl(fonte,z,x,y);
     });
     return tile;
   }
@@ -543,6 +575,7 @@ document.querySelectorAll('aside button').forEach(function(b){
     if(b.dataset.v==='exportar') { renderMissaoEquipeSelect(); renderChecklists(); renderChecklistRotas(); }
     if(b.dataset.v==='mapas') renderRegioesList();
     if(b.dataset.v==='relatorio') buildRelTipoFiltroChips();
+    if(b.dataset.v==='rios') renderRiosList();
   });
 });
 
@@ -762,6 +795,131 @@ function marcarDuplicata(idDuplicata, idOriginal){
   saveDB(db);
   return true;
 }
+
+// ════════════════════════════════════════
+// COTAS DE RIO — monitoramento e ativação automática
+// ════════════════════════════════════════
+function classificarCota(rio, valor){
+  if(valor>=rio.cotas.inundacao) return 5;
+  if(valor>=rio.cotas.alerta) return 4;
+  if(valor>=rio.cotas.atencao) return 2;
+  return 0;
+}
+function nomeCota(rio, valor){
+  if(valor>=rio.cotas.inundacao) return 'cota de inundação atingida';
+  if(valor>=rio.cotas.alerta) return 'cota de alerta atingida';
+  if(valor>=rio.cotas.atencao) return 'cota de atenção atingida';
+  return 'nível normal';
+}
+function statusCotaTexto(rio){
+  var v = rio.nivelAtual;
+  if(v==null) return {texto:'Sem leitura', cor:'#6b7280'};
+  if(v>=rio.cotas.inundacao) return {texto:'🔴 Inundação', cor:'#C0272D'};
+  if(v>=rio.cotas.alerta) return {texto:'🟠 Alerta', cor:'#FF6B00'};
+  if(v>=rio.cotas.atencao) return {texto:'🟡 Atenção', cor:'#FF9F0A'};
+  return {texto:'🟢 Normal', cor:'#34C759'};
+}
+function registrarLeituraRio(rioId, valor, autor){
+  var rio = db.riosMonitorados.find(function(r){return r.id===rioId;});
+  if(!rio) return;
+  var agora = nowISO();
+  rio.nivelAtual = valor;
+  rio.ultimaLeitura = {valor:valor, dataHora:agora, autor:autor||'quartel'};
+  rio.historicoLeituras = rio.historicoLeituras||[];
+  rio.historicoLeituras.push({valor:valor, dataHora:agora, autor:autor||'quartel'});
+
+  var riscoAlvo = classificarCota(rio, valor);
+  var occ = rio.ocorrenciaAtivaId ? db.ocorrencias.find(function(o){return o.id===rio.ocorrenciaAtivaId;}) : null;
+
+  if(riscoAlvo>0){
+    if(!occ){
+      occ = {
+        id: uid('oco'), tipo:'alagamento', lat:rio.lat, lng:rio.lng, risco:riscoAlvo,
+        observacao:'🌊 Nível do rio "'+rio.nome+'": '+valor+'m — '+nomeCota(rio,valor),
+        vitimas:{quantidade:0,observacao:''}, viaObstruida:{obstruida:false,observacao:''},
+        recursosNecessarios:[],
+        historico:[{dataHora:agora, risco:riscoAlvo, observacao:'Criada automaticamente por leitura de cota: '+valor+'m ('+nomeCota(rio,valor)+')', autor:autor||'sistema', origem:'auto-cota'}],
+        empenhos:[], criadoEm:agora, criadoPor:'auto-cota', origem:'auto-cota', atualizadoEm:agora, resolvidaEm:null,
+        vinculadas:[], duplicatas:[], duplicadaDe:null, reativacoes:[]
+      };
+      db.ocorrencias.push(occ);
+      rio.ocorrenciaAtivaId = occ.id;
+    } else {
+      var eraResolvida = occ.risco===0;
+      var reativada = eraResolvida && riscoAlvo>0;
+      occ.risco = riscoAlvo;
+      occ.observacao = '🌊 Nível do rio "'+rio.nome+'": '+valor+'m — '+nomeCota(rio,valor);
+      occ.atualizadoEm = agora;
+      if(reativada){ occ.resolvidaEm=null; occ.reativacoes=occ.reativacoes||[]; occ.reativacoes.push({dataHora:agora,autor:autor||'sistema',origem:'auto-cota'}); }
+      occ.historico.push({dataHora:agora, risco:riscoAlvo, observacao:(reativada?'🔁 Reativada — ':'')+'Leitura automática: '+valor+'m ('+nomeCota(rio,valor)+')', autor:autor||'sistema', origem:'auto-cota', reativacao:reativada});
+    }
+  } else if(occ && occ.risco!==0){
+    occ.risco = 0; occ.resolvidaEm = agora; occ.atualizadoEm = agora;
+    occ.historico.push({dataHora:agora, risco:0, observacao:'Nível normalizado ('+valor+'m) — resolvida automaticamente', autor:autor||'sistema', origem:'auto-cota'});
+  }
+  saveDB(db);
+}
+function renderRiosList(){
+  var el = document.getElementById('riosList');
+  if(!db.riosMonitorados.length){ el.innerHTML = '<div style="color:var(--sub);font-size:13px">Nenhum rio cadastrado ainda.</div>'; return; }
+  el.innerHTML = db.riosMonitorados.map(function(rio){
+    var st = statusCotaTexto(rio);
+    return '<div class="card" style="border-left:4px solid '+st.cor+'">'+
+      '<div style="display:flex;justify-content:space-between;align-items:center">'+
+        '<b>'+rio.nome+'</b><span class="badge" style="background:'+st.cor+'">'+st.texto+'</span>'+
+      '</div>'+
+      '<div style="font-size:12px;color:var(--sub);margin:4px 0">Atenção ≥'+rio.cotas.atencao+'m · Alerta ≥'+rio.cotas.alerta+'m · Inundação ≥'+rio.cotas.inundacao+'m'+
+        (rio.ultimaLeitura?' · Última leitura: '+rio.ultimaLeitura.valor+'m em '+fmtData(rio.ultimaLeitura.dataHora):' · Sem leitura ainda')+'</div>'+
+      '<div style="display:flex;gap:6px;align-items:center">'+
+        '<input type="number" step="0.01" placeholder="Nível atual (m)" class="rioLeituraInput" data-rio="'+rio.id+'" style="flex:1;margin:0">'+
+        '<button type="button" class="btn sm rioBtnRegistrar" data-rio="'+rio.id+'">Registrar leitura</button>'+
+        '<button type="button" class="btn sm" data-rio-excluir="'+rio.id+'" style="background:var(--verm)">🗑️</button>'+
+      '</div>'+
+    '</div>';
+  }).join('');
+  document.querySelectorAll('.rioBtnRegistrar').forEach(function(b){
+    b.addEventListener('click', function(){
+      var input = document.querySelector('.rioLeituraInput[data-rio="'+b.dataset.rio+'"]');
+      var valor = parseFloat(input.value);
+      if(isNaN(valor)){ toast('Digite um nível válido'); return; }
+      registrarLeituraRio(b.dataset.rio, valor, 'quartel');
+      renderRiosList(); renderMapa(); renderTabelaOcorrencias();
+      toast('Leitura registrada ✅');
+    });
+  });
+  document.querySelectorAll('[data-rio-excluir]').forEach(function(b){
+    b.addEventListener('click', function(){
+      if(!confirm('Excluir este rio monitorado? (não afeta ocorrências já criadas)')) return;
+      db.riosMonitorados = db.riosMonitorados.filter(function(r){return r.id!==b.dataset.rioExcluir;});
+      saveDB(db); renderRiosList();
+    });
+  });
+}
+document.getElementById('btnRioUsarCentroMapa').addEventListener('click', function(){
+  var c = qmap.getCenter();
+  document.getElementById('fRioLat').value = c.lat.toFixed(5);
+  document.getElementById('fRioLng').value = c.lng.toFixed(5);
+});
+document.getElementById('btnSalvarRio').addEventListener('click', function(){
+  var nome = document.getElementById('fRioNome').value.trim();
+  var atencao = parseFloat(document.getElementById('fRioAtencao').value);
+  var alerta = parseFloat(document.getElementById('fRioAlerta').value);
+  var inundacao = parseFloat(document.getElementById('fRioInundacao').value);
+  var lat = parseFloat(document.getElementById('fRioLat').value);
+  var lng = parseFloat(document.getElementById('fRioLng').value);
+  if(!nome){ toast('Informe o nome do rio/ponto'); return; }
+  if(isNaN(atencao)||isNaN(alerta)||isNaN(inundacao)){ toast('Preencha as três cotas'); return; }
+  if(!(atencao<alerta && alerta<inundacao)){ toast('As cotas devem ser crescentes: atenção < alerta < inundação'); return; }
+  if(isNaN(lat)||isNaN(lng)){ toast('Informe a localização (lat/lng ou use o centro do mapa)'); return; }
+  db.riosMonitorados.push({ id: uid('rio'), nome:nome, lat:lat, lng:lng,
+    cotas:{atencao:atencao, alerta:alerta, inundacao:inundacao}, nivelAtual:null, ultimaLeitura:null, historicoLeituras:[], ocorrenciaAtivaId:null });
+  saveDB(db);
+  document.getElementById('fRioNome').value=''; document.getElementById('fRioAtencao').value='';
+  document.getElementById('fRioAlerta').value=''; document.getElementById('fRioInundacao').value='';
+  document.getElementById('fRioLat').value=''; document.getElementById('fRioLng').value='';
+  renderRiosList();
+  toast('Rio cadastrado ✅');
+});
 
 function abrirOccModal(id){
   var o = db.ocorrencias.find(function(x){return x.id===id;});
@@ -1265,15 +1423,24 @@ document.getElementById('btnImprimirRelatorio').addEventListener('click', functi
   window.print();
 });
 
+var TIPOS_RELACIONAM_PONTOS = ['alagamento','via_obstruida','ponte'];
 document.getElementById('btnGerarGeral').addEventListener('click', function(){
   var ids = Array.from(document.querySelectorAll('.ckGeral:checked')).map(function(c){return c.value;});
   if(!ids.length){ toast('Marque ao menos uma ocorrência'); return; }
   var ocs = db.ocorrencias.filter(function(o){return ids.indexOf(o.id)>=0;}).map(function(o){
     var copia = JSON.parse(JSON.stringify(o)); copia.origem = 'geral'; copia.geral = true; return copia;
   });
-  var pacote = { versao:1, geradoEm: nowISO(), direcao:'quartel→campo', tipo:'geral', ocorrencias: ocs, equipes: [] };
+  var pontosIncluidos = {}, pontosRelacionados = [];
+  ocs.forEach(function(o){
+    if(TIPOS_RELACIONAM_PONTOS.indexOf(o.tipo)<0 || o.lat==null) return;
+    (db.pontosReferencia||[]).forEach(function(p){
+      if(pontosIncluidos[p.id] || p.lat==null) return;
+      if(distanciaMetros(o.lat,o.lng,p.lat,p.lng)<=300){ pontosIncluidos[p.id]=true; pontosRelacionados.push(p); }
+    });
+  });
+  var pacote = { versao:1, geradoEm: nowISO(), direcao:'quartel→campo', tipo:'geral', ocorrencias: ocs, equipes: [], pontosReferencia: pontosRelacionados };
   baixarPacote(pacote, null);
-  toast('Pacote geral gerado ✅');
+  toast('Pacote geral gerado ✅'+(pontosRelacionados.length?' (+'+pontosRelacionados.length+' pontos de referência próximos)':''));
 });
 
 document.getElementById('btnGerarMissao').addEventListener('click', function(){
