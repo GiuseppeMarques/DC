@@ -175,6 +175,11 @@
           <br><button class="btn primary" id="btnGerarGeral">Gerar pacote geral (.ved)</button>
         </div>
         <div class="card">
+          <h3 class="sec" style="margin-top:0">📍 Pontos de referência (abrigo/apoio/comando/etc)</h3>
+          <div class="checklist" id="checklistPontos"></div>
+          <br><button class="btn primary" id="btnGerarPontos">Gerar pacote de pontos (.ved)</button>
+        </div>
+        <div class="card">
           <h3 class="sec" style="margin-top:0">🎯 Missão para uma equipe</h3>
           <label class="lbl">Equipe</label>
           <select id="fMissaoEquipe"></select>
@@ -703,7 +708,7 @@ function renderMapa(){
   if(mapaFiltro.pontosRef!=='ocultar'){
     (db.pontosReferencia||[]).forEach(function(p){
       if(p.lat==null) return;
-      var ic = L.divIcon({html:'<div style="font-size:18px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">🏢</div>',className:'',iconSize:[22,22]});
+      var ic = L.divIcon({html:'<div style="font-size:18px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">'+iconePontoRef(p.tipo)+'</div>',className:'',iconSize:[22,22]});
       var contatoTxt = p.contato && (p.contato.nome||p.contato.telefone) ?
         '<br>Contato: '+(p.contato.nome||'—')+(p.contato.telefone?' — '+p.contato.telefone:'') : '';
       L.marker([p.lat,p.lng],{icon:ic}).addTo(mapLayer).bindPopup(
@@ -713,8 +718,61 @@ function renderMapa(){
     });
   }
 }
+function iconePontoRef(tipo){
+  var map = {abrigo:'🏠', apoio:'🧰', comando:'📡', ponte:'🌉', hidrante:'🚰', manancial:'💧'};
+  return map[tipo] || '🏢';
+}
 renderMapa();
-map.on('click', function(e){ novaOcorrenciaNoMapa(e.latlng.lat, e.latlng.lng); });
+var modoMarcarPonto = false;
+var BotaoMarcarPonto = L.Control.extend({
+  options:{position:'topleft'},
+  onAdd: function(){
+    var btn = L.DomUtil.create('button');
+    btn.innerHTML='📍'; btn.title='Marcar ponto (abrigo/apoio/comando)';
+    btn.style.cssText='width:34px;height:34px;background:#fff;border:none;border-radius:6px;font-size:16px;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.4);margin-top:6px;';
+    L.DomEvent.disableClickPropagation(btn);
+    btn.onclick = function(){
+      modoMarcarPonto = !modoMarcarPonto;
+      btn.style.background = modoMarcarPonto ? '#FF6B00' : '#fff';
+      toast(modoMarcarPonto ? 'Toque no mapa pra marcar o ponto' : 'Modo marcar ponto desativado');
+    };
+    return btn;
+  }
+});
+map.addControl(new BotaoMarcarPonto());
+var PONTO_TIPOS_MANUAIS = [{tipo:'abrigo',ic:'🏠',l:'Abrigo'},{tipo:'apoio',ic:'🧰',l:'Ponto de apoio'},{tipo:'comando',ic:'📡',l:'Posto de comando'}];
+function abrirNovoPontoModal(lat,lng){
+  var body = document.getElementById('modalBody');
+  body.innerHTML =
+    '<button class="closebtn" id="mClose">✕</button>'+
+    '<h2 style="margin:0 0 14px">Marcar ponto</h2>'+
+    '<label class="lbl">Tipo</label><div class="chiprow" id="pontoTipoChips">'+
+      PONTO_TIPOS_MANUAIS.map(function(t){return '<div class="chip" data-t="'+t.tipo+'">'+t.ic+' '+t.l+'</div>';}).join('')+
+    '</div>'+
+    '<label class="lbl">Nome (opcional)</label><input type="text" id="pontoNome" placeholder="Ex: Ginásio Municipal">'+
+    '<button class="btn primary" id="btnSalvarPonto" style="margin-top:12px">💾 Salvar ponto</button>';
+  var tipoEscolhido = null;
+  document.getElementById('mClose').addEventListener('click', fecharModal);
+  document.querySelectorAll('#pontoTipoChips .chip').forEach(function(ch){
+    ch.addEventListener('click', function(){
+      document.querySelectorAll('#pontoTipoChips .chip').forEach(function(x){x.classList.remove('on');});
+      ch.classList.add('on'); tipoEscolhido = ch.dataset.t;
+    });
+  });
+  document.getElementById('btnSalvarPonto').addEventListener('click', function(){
+    if(!tipoEscolhido){ toast('Escolha o tipo do ponto'); return; }
+    db.pontosReferencia = db.pontosReferencia||[];
+    db.pontosReferencia.push({ id: uid('pref'), tipo:tipoEscolhido, nome: document.getElementById('pontoNome').value.trim(),
+      lat:lat, lng:lng, criadoEm: nowISO(), origem:'quartel' });
+    saveDB(db); fecharModal(); renderMapa();
+    toast('Ponto marcado ✅');
+  });
+  document.getElementById('modalBg').classList.add('on');
+}
+map.on('click', function(e){
+  if(modoMarcarPonto){ modoMarcarPonto = false; abrirNovoPontoModal(e.latlng.lat, e.latlng.lng); return; }
+  novaOcorrenciaNoMapa(e.latlng.lat, e.latlng.lng);
+});
 
 // ════════════════════════════════════════
 // OCORRÊNCIAS — CRIAR / LISTAR / EDITAR
@@ -1289,6 +1347,11 @@ function renderChecklists(){
   }).join('') || '<div style="color:var(--sub);font-size:12px;padding:8px">Nenhuma ocorrência</div>';
   document.getElementById('checklistGeral').innerHTML = html;
   document.getElementById('checklistMissao').innerHTML = html.replace(/ckGeral/g,'ckMissao');
+  var htmlPontos = (db.pontosReferencia||[]).map(function(p){
+    return '<label class="checkrow"><input type="checkbox" class="ckPonto" value="'+p.id+'">'+
+      iconePontoRef(p.tipo)+' '+(p.nome||p.tipo)+'</label>';
+  }).join('') || '<div style="color:var(--sub);font-size:12px;padding:8px">Nenhum ponto cadastrado</div>';
+  document.getElementById('checklistPontos').innerHTML = htmlPontos;
 }
 function renderMissaoEquipeSelect(){
   var sel = document.getElementById('fMissaoEquipe');
@@ -1441,6 +1504,15 @@ document.getElementById('btnGerarGeral').addEventListener('click', function(){
   var pacote = { versao:1, geradoEm: nowISO(), direcao:'quartel→campo', tipo:'geral', ocorrencias: ocs, equipes: [], pontosReferencia: pontosRelacionados };
   baixarPacote(pacote, null);
   toast('Pacote geral gerado ✅'+(pontosRelacionados.length?' (+'+pontosRelacionados.length+' pontos de referência próximos)':''));
+});
+
+document.getElementById('btnGerarPontos').addEventListener('click', function(){
+  var ids = Array.from(document.querySelectorAll('.ckPonto:checked')).map(function(c){return c.value;});
+  if(!ids.length){ toast('Marque ao menos um ponto'); return; }
+  var pontos = (db.pontosReferencia||[]).filter(function(p){return ids.indexOf(p.id)>=0;});
+  var pacote = { versao:1, geradoEm: nowISO(), direcao:'quartel→campo', tipo:'pontos-referencia', ocorrencias: [], equipes: [], pontosReferencia: pontos };
+  baixarPacote(pacote, 'PONTOS');
+  toast('Pacote de pontos gerado ✅');
 });
 
 document.getElementById('btnGerarMissao').addEventListener('click', function(){

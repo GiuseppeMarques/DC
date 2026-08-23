@@ -597,11 +597,15 @@ function renderMapa(){
   // pontos de referência (recebidos do Quartel)
   (db.pontosReferencia||[]).forEach(function(p){
     if(p.lat==null) return;
-    var ic = L.divIcon({html:'<div style="font-size:18px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">🏢</div>',className:'',iconSize:[20,20]});
+    var ic = L.divIcon({html:'<div style="font-size:18px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">'+iconePontoRef(p.tipo)+'</div>',className:'',iconSize:[20,20]});
     var m = L.marker([p.lat,p.lng],{icon:ic}).addTo(mapLayer);
     m.bindPopup('<b>'+(p.nome||'Ponto de referência')+'</b>'+(p.re?'<br>RE: '+p.re:'')+
       (p.endereco?'<br>'+p.endereco:'')+(p.contato&&p.contato.nome?'<br>Contato: '+p.contato.nome+(p.contato.telefone?' — '+p.contato.telefone:''):''));
   });
+}
+function iconePontoRef(tipo){
+  var map = {abrigo:'🏠', apoio:'🧰', comando:'📡', ponte:'🌉', hidrante:'🚰', manancial:'💧'};
+  return map[tipo] || '🏢';
 }
 buildMapaFiltro();
 
