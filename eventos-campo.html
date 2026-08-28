@@ -168,7 +168,8 @@
         <label class="lbl">Nome do município/região</label>
         <input type="text" id="fRegiaoNome" placeholder="Ex: Florianópolis, SC">
         <label class="lbl">Tipo de mapa</label>
-        <select id="fFonteBaixar"><option value="rua">🗺️ Mapa (rua)</option><option value="satelite">🛰️ Satélite</option></select>
+        <select id="fFonteBaixar"><option value="rua">🗺️ Mapa (rua)</option><option value="satelite" disabled>🛰️ Satélite (indisponível pra baixar em massa)</option></select>
+        <div style="font-size:11px;color:var(--sub);margin-top:4px">O satélite gratuito não é licenciado pra download em massa — funciona normal só pra visualizar ao vivo no mapa.</div>
         <button class="btn primary" id="btnBaixarRegiao">⬇️ Buscar e baixar mapa</button>
         <div id="baixarProgresso" style="font-size:12px;color:var(--sub);margin-top:8px;"></div>
       </div>
@@ -478,6 +479,7 @@ window.removerRegiaoUI = function(id){ removerRegiao(id).then(function(){ render
 document.getElementById('btnBaixarRegiao').addEventListener('click', function(){
   var nome = document.getElementById('fRegiaoNome').value.trim();
   var fonte = document.getElementById('fFonteBaixar').value;
+  if(fonte==='satelite'){ toast('Satélite não pode ser baixado em massa (não licenciado)'); return; }
   if(!nome){ toast('Digite o nome do município/região'); return; }
   document.getElementById('baixarProgresso').textContent = 'Buscando região...';
   baixarRegiao(nome, fonte, function(feitos,total){
