@@ -90,7 +90,7 @@
 <div id="app">
   <aside>
     <h1>🚨 Eventos Quartel</h1>
-    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v28 · 01/09/2026</div>
+    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v30 · 01/09/2026</div>
     <button data-v="mapa" class="on">🗺️ Mapa</button>
     <button data-v="ocorrencias">📋 Ocorrências</button>
     <button data-v="equipes">👥 Equipes</button>
@@ -98,6 +98,7 @@
     <button data-v="exportar">📤 Exportar/Importar</button>
     <button data-v="relatorio">📄 Relatório</button>
     <button data-v="rios">🌊 Cotas de rio</button>
+    <button data-v="eventos">🗂️ Eventos</button>
   </aside>
   <main>
 
@@ -226,6 +227,8 @@
     <div class="view" id="v-relatorio">
       <h2 class="pagetitle">Relatório de ocorrências</h2>
       <div class="card no-print">
+        <label class="lbl">Evento</label>
+        <select id="fRelEvento"></select>
         <div class="grid3">
           <div><label class="lbl">De</label><input type="date" id="fRelDataDe"></div>
           <div><label class="lbl">Até</label><input type="date" id="fRelDataAte"></div>
@@ -270,6 +273,16 @@
       <div class="card">
         <h3 class="sec" style="margin-top:0">Rios monitorados</h3>
         <div id="riosList"></div>
+      </div>
+    </div>
+
+    <!-- EVENTOS -->
+    <div class="view" id="v-eventos">
+      <h2 class="pagetitle">Eventos</h2>
+      <div class="card" id="eventoAtivoCard"></div>
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">Histórico de eventos encerrados</h3>
+        <div id="eventosHistoricoList"></div>
       </div>
     </div>
 
@@ -339,6 +352,79 @@ function loadDB(){
 function saveDB(db){ localStorage.setItem(DBKEY, JSON.stringify(db)); }
 var db = loadDB();
 db.riosMonitorados = db.riosMonitorados || [];
+function garantirEventos(dbAlvo){
+  if(dbAlvo.eventos) return;
+  var agora = new Date().toISOString();
+  var eventoInicial = { id:'evt_'+Date.now().toString(36)+Math.random().toString(36).slice(2,5), nome:'Operação em andamento', dataInicial:agora, dataEncerramento:null, criadoEm:agora };
+  dbAlvo.eventos = [eventoInicial];
+  dbAlvo.eventoAtivoId = eventoInicial.id;
+  dbAlvo.ocorrencias.forEach(function(o){ if(!o.eventoId) o.eventoId = eventoInicial.id; });
+  dbAlvo.equipes.forEach(function(e){ if(!e.eventoId) e.eventoId = eventoInicial.id; });
+}
+garantirEventos(db);
+saveDB(db);
+function ocorrenciasDoEventoAtivo(){
+  return db.ocorrencias.filter(function(o){ return o.eventoId===db.eventoAtivoId; });
+}
+function equipesDoEventoAtivo(){
+  return db.equipes.filter(function(e){ return e.eventoId===db.eventoAtivoId; });
+}
+function contagemDoEvento(eventoId){
+  return {
+    ocorrencias: db.ocorrencias.filter(function(o){return o.eventoId===eventoId;}).length,
+    equipes: db.equipes.filter(function(e){return e.eventoId===eventoId;}).length
+  };
+}
+function renderEventosView(){
+  var ativo = (db.eventos||[]).find(function(ev){return ev.id===db.eventoAtivoId;});
+  var cardAtivo = document.getElementById('eventoAtivoCard');
+  if(ativo){
+    var c = contagemDoEvento(ativo.id);
+    cardAtivo.innerHTML =
+      '<h3 class="sec" style="margin-top:0">🟢 Evento ativo</h3>'+
+      '<div style="font-size:16px;font-weight:600">'+ativo.nome+'</div>'+
+      '<div style="font-size:12px;color:var(--sub);margin:4px 0 10px">Iniciado em '+fmtData(ativo.dataInicial)+' — '+c.ocorrencias+' ocorrência(s), '+c.equipes+' equipe(s)</div>'+
+      '<button class="btn sm" id="btnRenomearEvento">✏️ Renomear</button> '+
+      '<button class="btn sm" id="btnEncerrarEvento" style="background:var(--verm)">⏹️ Encerrar evento</button>';
+    document.getElementById('btnRenomearEvento').addEventListener('click', function(){
+      var novoNome = prompt('Novo nome do evento:', ativo.nome);
+      if(novoNome && novoNome.trim()){ ativo.nome = novoNome.trim(); saveDB(db); renderEventosView(); }
+    });
+    document.getElementById('btnEncerrarEvento').addEventListener('click', function(){
+      if(!confirm('Encerrar o evento "'+ativo.nome+'"?\n\nAs ocorrências e equipes atuais ficam arquivadas nele (nada é apagado) e as telas principais ficam vazias até você iniciar um novo evento.')) return;
+      ativo.dataEncerramento = nowISO();
+      db.eventoAtivoId = null;
+      saveDB(db);
+      renderEventosView(); renderMapa(); renderTabelaOcorrencias(); renderEquipesList(); renderMissoesBoard(); buildMapaFiltroEquipeSelects();
+      toast('Evento encerrado e arquivado ✅');
+    });
+  } else {
+    cardAtivo.innerHTML =
+      '<h3 class="sec" style="margin-top:0">Nenhum evento ativo</h3>'+
+      '<div style="font-size:12px;color:var(--sub);margin-bottom:10px">Inicie um evento pra começar a registrar ocorrências e equipes.</div>'+
+      '<label class="lbl">Nome do evento</label><input type="text" id="fNovoEventoNome" placeholder="Ex: Temporal de Setembro/2026">'+
+      '<button class="btn primary" id="btnIniciarEvento" style="margin-top:8px">▶️ Iniciar novo evento</button>';
+    document.getElementById('btnIniciarEvento').addEventListener('click', function(){
+      var nome = document.getElementById('fNovoEventoNome').value.trim();
+      if(!nome){ toast('Digite um nome pro evento'); return; }
+      var agora = nowISO();
+      var novo = { id: uid('evt'), nome:nome, dataInicial:agora, dataEncerramento:null, criadoEm:agora };
+      db.eventos.push(novo);
+      db.eventoAtivoId = novo.id;
+      saveDB(db);
+      renderEventosView(); renderMapa(); renderTabelaOcorrencias(); renderEquipesList(); renderMissoesBoard(); buildMapaFiltroEquipeSelects();
+      toast('Evento "'+nome+'" iniciado ✅');
+    });
+  }
+  var encerrados = (db.eventos||[]).filter(function(ev){return ev.dataEncerramento;}).sort(function(a,b){return (b.dataEncerramento||'').localeCompare(a.dataEncerramento||'');});
+  var elHist = document.getElementById('eventosHistoricoList');
+  elHist.innerHTML = encerrados.length ? encerrados.map(function(ev){
+    var c = contagemDoEvento(ev.id);
+    return '<div class="histitem"><b>'+ev.nome+'</b><br>'+
+      fmtData(ev.dataInicial)+' até '+fmtData(ev.dataEncerramento)+' — '+c.ocorrencias+' ocorrência(s), '+c.equipes+' equipe(s)'+
+      '<br><span style="font-size:11px;color:var(--sub)">Consulte no Relatório, selecionando este evento no filtro.</span></div>';
+  }).join('') : '<div style="color:var(--sub);font-size:12px">Nenhum evento encerrado ainda</div>';
+}
 function uid(p){ return p+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function nowISO(){ return new Date().toISOString(); }
 function fmtData(iso){ if(!iso) return '—'; var d=new Date(iso); function p(n){return (n<10?'0':'')+n;}
@@ -578,8 +664,9 @@ document.querySelectorAll('aside button').forEach(function(b){
     if(b.dataset.v==='equipes') renderEquipesList();
     if(b.dataset.v==='missoes') renderMissoesBoard();
     if(b.dataset.v==='exportar') { renderMissaoEquipeSelect(); renderChecklists(); renderChecklistRotas(); }
-    if(b.dataset.v==='relatorio') buildRelTipoFiltroChips();
+    if(b.dataset.v==='relatorio') { buildRelTipoFiltroChips(); popularSelectEventos(); }
     if(b.dataset.v==='rios') renderRiosList();
+    if(b.dataset.v==='eventos') renderEventosView();
   });
 });
 
@@ -654,7 +741,7 @@ function buildMapaFiltroRisco(){
   });
 }
 function buildMapaFiltroEquipeSelects(){
-  var optsEq = '<option value="todos">Todas</option><option value="__sem_equipe__">⚠️ Sem equipe</option>'+db.equipes.map(function(e){return '<option value="'+e.nome+'">'+e.nome+'</option>';}).join('');
+  var optsEq = '<option value="todos">Todas</option><option value="__sem_equipe__">⚠️ Sem equipe</option>'+equipesDoEventoAtivo().map(function(e){return '<option value="'+e.nome+'">'+e.nome+'</option>';}).join('');
   document.getElementById('mapaFiltroEquipe').innerHTML = optsEq;
   document.getElementById('mapaFiltroEquipe').value = mapaFiltro.equipe;
   document.getElementById('mapaFiltroRotas').innerHTML = '<option value="todas">Todas as equipes</option><option value="nenhuma">Nenhuma</option>'+
@@ -676,7 +763,7 @@ buildMapaFiltroTipo(); buildMapaFiltroRisco(); buildMapaFiltroEquipeSelects();
 
 function renderMapa(){
   mapLayer.clearLayers();
-  db.ocorrencias.forEach(function(o){
+  ocorrenciasDoEventoAtivo().forEach(function(o){
     if(o.lat==null) return;
     if(o.duplicadaDe) return;
     if(mapaFiltro.resolvidas==='ocultar' && o.risco===0 && mapaFiltro.risco==='todos') return;
@@ -712,7 +799,7 @@ function renderMapa(){
         .bindTooltip('🧭 '+(tr.equipeNome||'equipe')+' — rota com só 1 ponto (GPS falhou)');
     }
   });
-  db.equipes.forEach(function(eq){
+  equipesDoEventoAtivo().forEach(function(eq){
     if(eq.ultimaPosicao && eq.ultimaPosicao.lat!=null){
       var ic = L.divIcon({html:'<div style="font-size:20px">🚒</div>',className:'',iconSize:[24,24]});
       L.marker([eq.ultimaPosicao.lat, eq.ultimaPosicao.lng],{icon:ic}).addTo(mapLayer)
@@ -733,7 +820,7 @@ function renderMapa(){
   }
 }
 function iconePontoRef(tipo){
-  var map = {abrigo:'🏠', apoio:'🧰', comando:'📡', ponte:'🌉', hidrante:'🚰', manancial:'💧'};
+  var map = {abrigo:'🏠', apoio:'🧰', comando:'📡', ponte:'🌉', hidrante:'🚰', manancial:'💧', observacao:'📌'};
   return map[tipo] || '🏢';
 }
 renderMapa();
@@ -810,7 +897,7 @@ function ocorrenciasFiltradas(){
   var de = document.getElementById('fDataDe').value;
   var ate = document.getElementById('fDataAte').value;
   var status = document.getElementById('fStatus').value;
-  return db.ocorrencias.filter(function(o){
+  return ocorrenciasDoEventoAtivo().filter(function(o){
     if(o.duplicadaDe) return false;
     if(tipoFiltroAtivo!=='todos' && o.tipo!==tipoFiltroAtivo) return false;
     if(status==='abertas' && o.risco===0) return false;
@@ -840,7 +927,7 @@ function renderTabelaOcorrencias(){
 
 function novaOcorrenciaNoMapa(lat,lng){
   var agora = nowISO();
-  var o = { id: uid('oco'), tipo:'outro', lat:lat, lng:lng, risco:3, observacao:'',
+  var o = { id: uid('oco'), tipo:'outro', lat:lat, lng:lng, risco:3, observacao:'', eventoId: db.eventoAtivoId,
     vitimas:{quantidade:0,observacao:''}, viaObstruida:{obstruida:false,observacao:''},
     recursosNecessarios:[], historico:[{dataHora:agora,risco:3,observacao:'Criada pelo Quartel',autor:'quartel',origem:'quartel'}],
     empenhos:[], criadoEm:agora, criadoPor:'quartel', origem:'quartel', atualizadoEm:agora, resolvidaEm:null };
@@ -907,7 +994,7 @@ function registrarLeituraRio(rioId, valor, autor){
     if(!occ){
       occ = {
         id: uid('oco'), tipo:'alagamento', lat:rio.lat, lng:rio.lng, risco:riscoAlvo,
-        observacao:'🌊 Nível do rio "'+rio.nome+'": '+valor+'m — '+nomeCota(rio,valor),
+        observacao:'🌊 Nível do rio "'+rio.nome+'": '+valor+'m — '+nomeCota(rio,valor), eventoId: db.eventoAtivoId,
         vitimas:{quantidade:0,observacao:''}, viaObstruida:{obstruida:false,observacao:''},
         recursosNecessarios:[],
         historico:[{dataHora:agora, risco:riscoAlvo, observacao:'Criada automaticamente por leitura de cota: '+valor+'m ('+nomeCota(rio,valor)+')', autor:autor||'sistema', origem:'auto-cota'}],
@@ -1061,6 +1148,7 @@ function abrirOccModal(id){
     '<label class="lbl">Obs. vítimas / via</label><textarea id="mVitObs">'+((o.vitimas.observacao||'')+(o.viaObstruida.observacao?(' | '+o.viaObstruida.observacao):''))+'</textarea>'+
     '<label class="lbl">Recursos necessários</label><div id="mRecTags">'+recTags+'</div>'+
     '<button class="btn primary" id="btnSalvarOcc" style="margin-top:10px">💾 Salvar / Reativar</button>'+
+    '<button type="button" class="btn sm" id="btnMarcarPontoObservacao" style="margin-top:8px">📌 Marcar como ponto de observação</button>'+
     '<h3 class="sec">🔗 Ocorrências vinculadas</h3>'+vinculadasHtml+
     '<div style="display:flex;gap:6px;margin-top:8px">'+
       '<select id="mVincularSel" style="flex:1"><option value="">Selecione uma ocorrência…</option>'+vincularOptsHtml+'</select>'+
@@ -1136,6 +1224,17 @@ function abrirOccModal(id){
   document.getElementById('btnAtribuirEquipeOcc').addEventListener('click', function(){
     abrirEquipeModal(o.id, 'atribuir', null);
   });
+  document.getElementById('btnMarcarPontoObservacao').addEventListener('click', function(){
+    if(o.lat==null){ toast('Esta ocorrência não tem localização definida'); return; }
+    var nomeSugerido = tipoInfo(o.tipo).l+(o.observacao?' — '+o.observacao.slice(0,40):'');
+    var nome = prompt('Nome do ponto de observação:', nomeSugerido);
+    if(nome===null) return;
+    db.pontosReferencia = db.pontosReferencia||[];
+    db.pontosReferencia.push({ id: uid('pref'), tipo:'observacao', nome: nome.trim()||nomeSugerido,
+      lat:o.lat, lng:o.lng, criadoEm: nowISO(), origem:'quartel', ocorrenciaOrigemId:o.id });
+    saveDB(db); renderMapa();
+    toast('Marcado como ponto de observação ✅ — fica permanente, não é afetado por encerrar o evento');
+  });
   document.getElementById('btnSalvarOcc').addEventListener('click', function(){
     var agora = nowISO();
     var eraResolvida = o.risco===0;
@@ -1162,14 +1261,14 @@ window.abrirOccModal = abrirOccModal;
 // MISSÕES — quadro de controle, trocar/apoiar equipe
 // ════════════════════════════════════════
 function ocorrenciasAbertasSemEquipe(){
-  return db.ocorrencias.filter(function(o){
+  return ocorrenciasDoEventoAtivo().filter(function(o){
     if(o.risco===0) return false;
     var ativos = (o.empenhos||[]).filter(function(e){return e.status!=='encerrado';});
     return ativos.length===0;
   });
 }
 function ocorrenciasDaEquipe(equipeNome){
-  return db.ocorrencias.filter(function(o){
+  return ocorrenciasDoEventoAtivo().filter(function(o){
     return (o.empenhos||[]).some(function(e){return e.equipeNome===equipeNome && e.status!=='encerrado';});
   });
 }
@@ -1183,8 +1282,8 @@ function renderMissoesBoard(){
   }).join('') : '<div style="color:var(--sub);font-size:12px">Nenhuma ocorrência em aberto sem equipe 🎉</div>';
 
   var board = document.getElementById('equipesMissoesBoard');
-  if(!db.equipes.length){ board.innerHTML = '<div class="card"><div style="color:var(--sub);font-size:13px">Nenhuma equipe cadastrada</div></div>'; return; }
-  board.innerHTML = db.equipes.map(function(eq){
+  if(!equipesDoEventoAtivo().length){ board.innerHTML = '<div class="card"><div style="color:var(--sub);font-size:13px">Nenhuma equipe cadastrada</div></div>'; return; }
+  board.innerHTML = equipesDoEventoAtivo().map(function(eq){
     var ocs = ocorrenciasDaEquipe(eq.nome);
     return '<div class="card"><h3 class="sec" style="margin-top:0">👥 '+eq.nome+' ('+ocs.length+')</h3>'+
       (ocs.length ? ocs.map(function(o){
@@ -1203,10 +1302,11 @@ function renderMissoesBoard(){
 }
 function abrirEquipeModal(ocId, modo, equipeAntigaNome){
   var o = db.ocorrencias.find(function(x){return x.id===ocId;});
-  if(!db.equipes.length){ toast('Cadastre uma equipe primeiro'); return; }
+  var equipesDisponiveis = equipesDoEventoAtivo();
+  if(!equipesDisponiveis.length){ toast('Cadastre uma equipe primeiro'); return; }
   var body = document.getElementById('modalBody');
   var grupo1=[], grupo2=[], grupo3=[];
-  db.equipes.forEach(function(e){
+  equipesDisponiveis.forEach(function(e){
     var cap = (e.capacidades||[]).find(function(c){return c.tipo===o.tipo;});
     if(cap && cap.riscoMaximo>=o.risco) grupo1.push(e);
     else if(cap) grupo2.push(e);
@@ -1227,7 +1327,7 @@ function abrirEquipeModal(ocId, modo, equipeAntigaNome){
     '<label class="lbl">Equipe</label><div id="mEquipeChips">'+chipsHtml+'</div>'+
     '<button class="btn primary" id="btnConfirmarEquipe" style="margin-top:10px">Confirmar</button>';
   var primeiraLista = grupo1.length?grupo1:(grupo2.length?grupo2:grupo3);
-  var eqIdSelecionada = primeiraLista.length ? primeiraLista[0].id : db.equipes[0].id;
+  var eqIdSelecionada = primeiraLista.length ? primeiraLista[0].id : equipesDisponiveis[0].id;
   document.querySelectorAll('.mequipechip').forEach(function(c){
     if(c.dataset.id===eqIdSelecionada){ c.style.background='var(--acc)'; c.style.color='#fff'; c.style.borderColor='var(--acc)'; }
     c.addEventListener('click', function(){
@@ -1310,7 +1410,7 @@ document.getElementById('btnSalvarEquipe').addEventListener('click', function(){
     existente.membros = membros; existente.viatura = document.getElementById('fEqViatura').value; existente.capacidades = caps;
   } else {
     db.equipes.push({ id:uid('eq'), nome:nome, membros:membros, viatura:document.getElementById('fEqViatura').value,
-      capacidades:caps, status:'disponivel', ultimaPosicao:{lat:null,lng:null,dataHora:null}, ocorrenciaAtualId:null });
+      capacidades:caps, status:'disponivel', ultimaPosicao:{lat:null,lng:null,dataHora:null}, ocorrenciaAtualId:null, eventoId: db.eventoAtivoId });
   }
   saveDB(db);
   document.getElementById('fEqNome').value=''; document.getElementById('fEqMembros').value=''; document.getElementById('fEqViatura').value='';
@@ -1319,8 +1419,9 @@ document.getElementById('btnSalvarEquipe').addEventListener('click', function(){
 });
 function renderEquipesList(){
   var el = document.getElementById('equipesList');
-  if(!db.equipes.length){ el.innerHTML = '<div style="color:var(--sub);font-size:13px">Nenhuma equipe cadastrada</div>'; return; }
-  el.innerHTML = db.equipes.map(function(e){
+  var lista = equipesDoEventoAtivo();
+  if(!lista.length){ el.innerHTML = '<div style="color:var(--sub);font-size:13px">Nenhuma equipe cadastrada</div>'; return; }
+  el.innerHTML = lista.map(function(e){
     var capTxt = (e.capacidades||[]).map(function(c){return tipoInfo(c.tipo).ic+' até '+c.riscoMaximo;}).join(' · ') || 'sem capacidades definidas';
     return '<div class="card" style="margin-bottom:10px;padding:12px">'+
       '<b>'+e.nome+'</b> <span class="badge" style="background:'+(e.status==='disponivel'?'#34C759':'#3A3A3C')+'">'+e.status+'</span>'+
@@ -1373,7 +1474,7 @@ window.editarEquipe = function(id){
 // EXPORTAR — AVISO GERAL E MISSÕES
 // ════════════════════════════════════════
 function renderChecklists(){
-  var lista = ocorrenciasFiltradas().length ? ocorrenciasFiltradas() : db.ocorrencias;
+  var lista = ocorrenciasFiltradas().length ? ocorrenciasFiltradas() : ocorrenciasDoEventoAtivo();
   var html = lista.map(function(o){
     return '<label class="checkrow"><input type="checkbox" class="ckGeral" value="'+o.id+'">'+
       tipoInfo(o.tipo).ic+' '+tipoInfo(o.tipo).l+' — risco '+o.risco+' — '+(o.observacao||'sem obs.')+'</label>';
@@ -1388,7 +1489,7 @@ function renderChecklists(){
 }
 function renderMissaoEquipeSelect(){
   var sel = document.getElementById('fMissaoEquipe');
-  sel.innerHTML = db.equipes.map(function(e){return '<option value="'+e.id+'">'+e.nome+'</option>';}).join('') || '<option value="">Nenhuma equipe cadastrada</option>';
+  sel.innerHTML = equipesDoEventoAtivo().map(function(e){return '<option value="'+e.id+'">'+e.nome+'</option>';}).join('') || '<option value="">Nenhuma equipe cadastrada</option>';
 }
 function renderChecklistRotas(){
   var el = document.getElementById('checklistRotas');
@@ -1445,9 +1546,10 @@ document.getElementById('fileRestaurarBackup').addEventListener('change', functi
       if(!confirm('Isso vai SUBSTITUIR todos os dados atuais do Quartel pelos dados do backup (de '+fmtData(backup.geradoEm)+'). Essa ação não pode ser desfeita. Continuar?')) return;
       db = backup.dados;
       db.riosMonitorados = db.riosMonitorados || [];
+      garantirEventos(db);
       saveDB(db);
       document.getElementById('backupResumo').textContent = 'Restaurado backup de '+fmtData(backup.geradoEm)+' — '+db.ocorrencias.length+' ocorrências, '+db.equipes.length+' equipes.';
-      renderMapa(); renderTabelaOcorrencias(); renderEquipesList(); renderMissoesBoard();
+      renderMapa(); renderTabelaOcorrencias(); renderEquipesList(); renderMissoesBoard(); buildMapaFiltroEquipeSelects();
       toast('Backup restaurado ✅');
     }catch(err){ toast('Erro ao ler o arquivo de backup'); }
   };
@@ -1499,12 +1601,23 @@ function ciclosDaOcorrencia(o){
   if(aberturaAtual) ciclos.push({inicio:aberturaAtual, fim:null});
   return ciclos;
 }
+function popularSelectEventos(){
+  var sel = document.getElementById('fRelEvento');
+  if(!sel) return;
+  var ordenados = (db.eventos||[]).slice().sort(function(a,b){ return (b.dataInicial||'').localeCompare(a.dataInicial||''); });
+  sel.innerHTML = ordenados.map(function(ev){
+    return '<option value="'+ev.id+'">'+ev.nome+(ev.id===db.eventoAtivoId?' (ativo)':'')+'</option>';
+  }).join('');
+  sel.value = db.eventoAtivoId;
+}
 function linhasParaRelatorio(ignorarFiltroTipo){
   var de = document.getElementById('fRelDataDe').value;
   var ate = document.getElementById('fRelDataAte').value;
   var status = document.getElementById('fRelStatus').value;
+  var eventoSel = document.getElementById('fRelEvento').value || db.eventoAtivoId;
   var linhas = [];
   db.ocorrencias.forEach(function(o){
+    if(o.eventoId!==eventoSel) return;
     if(o.duplicadaDe) return;
     if(!ignorarFiltroTipo && relTipoFiltro!=='todos' && o.tipo!==relTipoFiltro) return;
     var ciclos = ciclosDaOcorrencia(o);
@@ -1781,6 +1894,7 @@ document.getElementById('fileImportar').addEventListener('change', function(e){
       }
 
       var contador = {novos:0, atualizados:0, conflitos:0};
+      (pacote.ocorrencias||[]).forEach(function(o){ if(!o.eventoId) o.eventoId = db.eventoAtivoId; });
       db.ocorrencias = mesclarOcorrencias(db.ocorrencias, pacote.ocorrencias||[], contador);
       db.trajetorias = (db.trajetorias||[]).concat((pacote.trajetorias||[]).filter(function(tr){
         return !db.trajetorias.some(function(t){return t.id===tr.id;});
@@ -1795,7 +1909,7 @@ document.getElementById('fileImportar').addEventListener('change', function(e){
       saveDB(db);
       document.getElementById('importResumo').innerHTML =
         'Importado: '+contador.novos+' novas, '+contador.atualizados+' mescladas (campo a campo, nada foi perdido)';
-      renderMapa(); renderTabelaOcorrencias(); renderEquipesList();
+      renderMapa(); renderTabelaOcorrencias(); renderEquipesList(); buildMapaFiltroEquipeSelects();
       toast('Importação concluída ✅');
     }catch(err){ toast('Erro ao importar arquivo'); }
   };
