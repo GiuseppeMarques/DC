@@ -90,6 +90,7 @@
 <div id="app">
   <aside>
     <h1>🚨 Eventos Quartel</h1>
+    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v26 · 21/08/2026</div>
     <button data-v="mapa" class="on">🗺️ Mapa</button>
     <button data-v="ocorrencias">📋 Ocorrências</button>
     <button data-v="equipes">👥 Equipes</button>
@@ -182,6 +183,14 @@
     <!-- EXPORTAR / MISSÕES -->
     <div class="view" id="v-exportar">
       <h2 class="pagetitle">Dados — Exportar / Importar</h2>
+      <div class="card" style="border:1px solid var(--amar)">
+        <h3 class="sec" style="margin-top:0">💾 Backup geral do Quartel</h3>
+        <div style="font-size:12px;color:var(--sub);margin-bottom:8px">Salva TUDO (ocorrências, equipes, rotas, pontos, rios, histórico) num único arquivo — use pra guardar uma cópia de segurança ou pra restaurar se precisar trocar de computador.</div>
+        <button class="btn primary" id="btnBackupGeral">💾 Baixar backup completo (.json)</button>
+        <button class="btn" id="btnRestaurarBackupBtn" style="margin-top:8px">♻️ Restaurar de um backup</button>
+        <input type="file" id="fileRestaurarBackup" class="fileinput" accept=".json">
+        <div id="backupResumo" style="margin-top:10px;font-size:13px;color:var(--sub)"></div>
+      </div>
       <div class="card">
         <button class="btn primary" id="btnImportarBtn">📥 Importar arquivo do Campo (.ved)</button>
         <input type="file" id="fileImportar" class="fileinput" accept=".ved,.json">
@@ -231,6 +240,12 @@
       <div class="card" id="relatorioResultado">
         <div style="color:var(--sub);font-size:13px">Ajuste os filtros e clique em "Gerar relatório".</div>
       </div>
+      <div class="card no-print">
+        <h3 class="sec" style="margin-top:0">📊 Resumo quantitativo geral (por tipo)</h3>
+        <div style="font-size:12px;color:var(--sub);margin-bottom:8px">Usa o mesmo período (De/Até) e Status escolhidos acima, mas ignora o filtro de tipo — mostra todos.</div>
+        <button class="btn primary" id="btnGerarResumoQuantitativo">📊 Gerar resumo</button>
+      </div>
+      <div class="card" id="resumoQuantitativoResultado"></div>
     </div>
 
     <!-- COTAS DE RIO -->
@@ -681,7 +696,8 @@ function renderMapa(){
     m.bindPopup('<b>'+tipoInfo(o.tipo).l+'</b><br>Risco: '+o.risco+' — '+RISCO_LABEL[o.risco]+
       (o.observacao?'<br>'+o.observacao:'')+
       (temMissao?'<br>👥 '+equipesAtivas.join(', '):'<br><i>Sem equipe</i>')+
-      '<br><a href="#" onclick="abrirOccModal(\''+o.id+'\');return false;">Abrir</a>');
+      '<br><a href="#" onclick="abrirOccModal(\''+o.id+'\');return false;">Abrir</a>'+
+      ' · <a href="#" onclick="abrirAtribuirEquipe(\''+o.id+'\');return false;">👥 Escalar equipe</a>');
   });
   (db.trajetorias||[]).forEach(function(tr){
     if(mapaFiltro.rotas==='nenhuma') return;
@@ -689,6 +705,10 @@ function renderMapa(){
     if(tr.pontos && tr.pontos.length>1){
       L.polyline(tr.pontos.map(function(p){return [p.lat,p.lng];}), {color:'#FF8A3D', weight:3, opacity:.8})
         .addTo(mapLayer).bindTooltip(tr.equipeNome||'equipe');
+    } else if(tr.pontos && tr.pontos.length===1){
+      var icRota = L.divIcon({html:'<div style="font-size:16px" title="Rota com só 1 ponto (GPS falhou)">📍</div>',className:'',iconSize:[18,18]});
+      L.marker([tr.pontos[0].lat,tr.pontos[0].lng],{icon:icRota}).addTo(mapLayer)
+        .bindTooltip('🧭 '+(tr.equipeNome||'equipe')+' — rota com só 1 ponto (GPS falhou)');
     }
   });
   db.equipes.forEach(function(eq){
@@ -1046,7 +1066,9 @@ function abrirOccModal(id){
       '<button type="button" class="btn sm" id="btnVincular">Vincular</button>'+
     '</div>'+
     (duplicatasIds.length ? '<h3 class="sec">🔁 Duplicatas mescladas aqui</h3>'+duplicatasHtml : '')+
-    '<h3 class="sec">Empenhos</h3>'+empHtml+
+    '<h3 class="sec">Empenhos</h3>'+
+    '<button type="button" class="btn sm" id="btnAtribuirEquipeOcc" style="margin-bottom:8px">👥 Atribuir equipe</button>'+
+    empHtml+
     '<h3 class="sec">Histórico</h3>'+histHtml;
 
   var novoRisco = o.risco; var recSel = o.recursosNecessarios.slice();
@@ -1109,6 +1131,9 @@ function abrirOccModal(id){
     o.vinculadas = o.vinculadas||[]; if(o.vinculadas.indexOf(alvoId)<0) o.vinculadas.push(alvoId);
     alvo.vinculadas = alvo.vinculadas||[]; if(alvo.vinculadas.indexOf(o.id)<0) alvo.vinculadas.push(o.id);
     saveDB(db); toast('Vinculada ✅'); abrirOccModal(id);
+  });
+  document.getElementById('btnAtribuirEquipeOcc').addEventListener('click', function(){
+    abrirEquipeModal(o.id, 'atribuir', null);
   });
   document.getElementById('btnSalvarOcc').addEventListener('click', function(){
     var agora = nowISO();
@@ -1179,16 +1204,31 @@ function abrirEquipeModal(ocId, modo, equipeAntigaNome){
   var o = db.ocorrencias.find(function(x){return x.id===ocId;});
   if(!db.equipes.length){ toast('Cadastre uma equipe primeiro'); return; }
   var body = document.getElementById('modalBody');
-  var chipsHtml = db.equipes.map(function(e,i){
-    return '<div class="chip mequipechip" data-id="'+e.id+'" style="'+(i===0?'background:var(--acc);color:#fff;border-color:var(--acc)':'')+'">'+e.nome+'</div>';
-  }).join('');
+  var grupo1=[], grupo2=[], grupo3=[];
+  db.equipes.forEach(function(e){
+    var cap = (e.capacidades||[]).find(function(c){return c.tipo===o.tipo;});
+    if(cap && cap.riscoMaximo>=o.risco) grupo1.push(e);
+    else if(cap) grupo2.push(e);
+    else grupo3.push(e);
+  });
+  function chipsDoGrupo(lista){
+    return lista.map(function(e){
+      return '<div class="chip mequipechip" data-id="'+e.id+'">'+e.nome+'</div>';
+    }).join('');
+  }
+  var chipsHtml =
+    (grupo1.length ? '<div style="font-size:11px;color:var(--sub);margin:8px 0 4px">✅ Atuam neste tipo, no nível necessário</div><div class="chiprow" style="flex-wrap:wrap">'+chipsDoGrupo(grupo1)+'</div>' : '')+
+    (grupo2.length ? '<div style="font-size:11px;color:var(--sub);margin:8px 0 4px">⚠️ Atuam neste tipo, mas em nível inferior ao necessário</div><div class="chiprow" style="flex-wrap:wrap">'+chipsDoGrupo(grupo2)+'</div>' : '')+
+    (grupo3.length ? '<div style="font-size:11px;color:var(--sub);margin:8px 0 4px">— Não atuam neste tipo de ocorrência</div><div class="chiprow" style="flex-wrap:wrap">'+chipsDoGrupo(grupo3)+'</div>' : '');
   var titulo = modo==='atribuir' ? 'Atribuir equipe' : modo==='trocar' ? 'Trocar equipe' : 'Adicionar equipe de apoio';
   body.innerHTML = '<button class="closebtn" id="mClose">✕</button><h2 style="margin:0 0 14px">'+titulo+'</h2>'+
     '<div style="font-size:13px;color:var(--sub);margin-bottom:10px">'+tipoInfo(o.tipo).ic+' '+tipoInfo(o.tipo).l+' — risco '+o.risco+'</div>'+
-    '<label class="lbl">Equipe</label><div class="chiprow" id="mEquipeChips" style="flex-wrap:wrap">'+chipsHtml+'</div>'+
+    '<label class="lbl">Equipe</label><div id="mEquipeChips">'+chipsHtml+'</div>'+
     '<button class="btn primary" id="btnConfirmarEquipe" style="margin-top:10px">Confirmar</button>';
-  var eqIdSelecionada = db.equipes[0].id;
+  var primeiraLista = grupo1.length?grupo1:(grupo2.length?grupo2:grupo3);
+  var eqIdSelecionada = primeiraLista.length ? primeiraLista[0].id : db.equipes[0].id;
   document.querySelectorAll('.mequipechip').forEach(function(c){
+    if(c.dataset.id===eqIdSelecionada){ c.style.background='var(--acc)'; c.style.color='#fff'; c.style.borderColor='var(--acc)'; }
     c.addEventListener('click', function(){
       eqIdSelecionada = c.dataset.id;
       document.querySelectorAll('.mequipechip').forEach(function(x){x.style.background='var(--card2)';x.style.color='var(--sub)';x.style.borderColor='var(--border)';});
@@ -1354,8 +1394,9 @@ function renderChecklistRotas(){
   var lista = (db.trajetorias||[]).slice().sort(function(a,b){ return (b.inicioEm||'').localeCompare(a.inicioEm||''); });
   el.innerHTML = lista.map(function(tr){
     var qtdPontos = tr.pontos ? tr.pontos.length : 0;
+    var aviso = qtdPontos<2 ? ' <span class="badge" style="background:var(--amar);color:#1C1C1E">⚠️ poucos pontos, pode não aparecer no mapa</span>' : '';
     return '<label class="checkrow"><input type="checkbox" class="ckRota" value="'+tr.id+'">'+
-      '🧭 '+(tr.equipeNome||'sem equipe')+' — '+fmtData(tr.inicioEm)+' — '+qtdPontos+' pontos</label>';
+      '🧭 '+(tr.equipeNome||'sem equipe')+' — '+fmtData(tr.inicioEm)+' — '+qtdPontos+' pontos'+aviso+'</label>';
   }).join('') || '<div style="color:var(--sub);font-size:12px;padding:8px">Nenhuma rota gravada ainda</div>';
 }
 
@@ -1376,6 +1417,41 @@ function baixarPacote(pacote, equipeNome){
   a.download = nomeArquivo(equipeNome);
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
+
+// ════════════════════════════════════════
+// BACKUP GERAL (tudo, não só uma seleção)
+// ════════════════════════════════════════
+document.getElementById('btnBackupGeral').addEventListener('click', function(){
+  var backup = { tipo:'backup-quartel-completo', versao:1, geradoEm: nowISO(), dados: db };
+  var blob = new Blob([JSON.stringify(backup)], {type:'application/json'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  function p(n){return (n<10?'0':'')+n;}
+  var d = new Date();
+  a.download = 'backup-eventos-quartel_'+d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+'.json';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  document.getElementById('backupResumo').textContent = 'Backup gerado em '+fmtData(backup.geradoEm)+' — '+db.ocorrencias.length+' ocorrências, '+db.equipes.length+' equipes, '+(db.trajetorias||[]).length+' rotas.';
+  toast('Backup completo baixado ✅');
+});
+document.getElementById('btnRestaurarBackupBtn').addEventListener('click', function(){ document.getElementById('fileRestaurarBackup').click(); });
+document.getElementById('fileRestaurarBackup').addEventListener('change', function(e){
+  var file = e.target.files && e.target.files[0]; if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev){
+    try{
+      var backup = JSON.parse(ev.target.result);
+      if(!backup.dados || backup.tipo!=='backup-quartel-completo'){ toast('Arquivo não é um backup válido do Quartel'); return; }
+      if(!confirm('Isso vai SUBSTITUIR todos os dados atuais do Quartel pelos dados do backup (de '+fmtData(backup.geradoEm)+'). Essa ação não pode ser desfeita. Continuar?')) return;
+      db = backup.dados;
+      db.riosMonitorados = db.riosMonitorados || [];
+      saveDB(db);
+      document.getElementById('backupResumo').textContent = 'Restaurado backup de '+fmtData(backup.geradoEm)+' — '+db.ocorrencias.length+' ocorrências, '+db.equipes.length+' equipes.';
+      renderMapa(); renderTabelaOcorrencias(); renderEquipesList(); renderMissoesBoard();
+      toast('Backup restaurado ✅');
+    }catch(err){ toast('Erro ao ler o arquivo de backup'); }
+  };
+  reader.readAsText(file);
+});
 
 document.getElementById('btnExportarRotas').addEventListener('click', function(){
   var ids = Array.from(document.querySelectorAll('.ckRota:checked')).map(function(c){return c.value;});
@@ -1422,14 +1498,14 @@ function ciclosDaOcorrencia(o){
   if(aberturaAtual) ciclos.push({inicio:aberturaAtual, fim:null});
   return ciclos;
 }
-function linhasParaRelatorio(){
+function linhasParaRelatorio(ignorarFiltroTipo){
   var de = document.getElementById('fRelDataDe').value;
   var ate = document.getElementById('fRelDataAte').value;
   var status = document.getElementById('fRelStatus').value;
   var linhas = [];
   db.ocorrencias.forEach(function(o){
     if(o.duplicadaDe) return;
-    if(relTipoFiltro!=='todos' && o.tipo!==relTipoFiltro) return;
+    if(!ignorarFiltroTipo && relTipoFiltro!=='todos' && o.tipo!==relTipoFiltro) return;
     var ciclos = ciclosDaOcorrencia(o);
     ciclos.forEach(function(c, idx){
       var dataLinha = (c.inicio||'').slice(0,10);
@@ -1444,6 +1520,42 @@ function linhasParaRelatorio(){
   linhas.sort(function(a,b){ return (a.inicio||'').localeCompare(b.inicio||''); });
   return linhas;
 }
+function montarResumoQuantitativo(linhas){
+  var porTipo = {};
+  linhas.forEach(function(l){
+    var o = l.ocorrencia;
+    if(!porTipo[o.tipo]) porTipo[o.tipo] = { eventos:0, vitimas:0, equipes:{}, niveis:{1:0,2:0,3:0,4:0,5:0} };
+    var g = porTipo[o.tipo];
+    g.eventos++;
+    g.vitimas += (o.vitimas&&o.vitimas.quantidade)||0;
+    (o.empenhos||[]).forEach(function(e){ g.equipes[e.equipeNome]=true; });
+    var nivelAtual = l.aberta ? o.risco : 0;
+    if(nivelAtual>=1 && nivelAtual<=5) g.niveis[nivelAtual]++;
+  });
+  return porTipo;
+}
+document.getElementById('btnGerarResumoQuantitativo').addEventListener('click', function(){
+  var linhas = linhasParaRelatorio(true);
+  var resumo = montarResumoQuantitativo(linhas);
+  var tipos = Object.keys(resumo);
+  var el = document.getElementById('resumoQuantitativoResultado');
+  if(!tipos.length){ el.innerHTML = '<div style="color:var(--sub);font-size:13px">Nenhum evento no período/filtro escolhido.</div>'; return; }
+  var totalEventos=0, totalVitimas=0, todasEquipes={};
+  var linhasHtml = tipos.map(function(t){
+    var g = resumo[t];
+    totalEventos += g.eventos; totalVitimas += g.vitimas;
+    Object.keys(g.equipes).forEach(function(eq){ todasEquipes[eq]=true; });
+    var niveisTxt = [1,2,3,4,5].map(function(n){ return g.niveis[n] ? 'N'+n+':'+g.niveis[n] : null; }).filter(Boolean).join(' · ') || '—';
+    return '<tr><td>'+tipoInfo(t).ic+' '+tipoInfo(t).l+'</td><td style="text-align:center">'+g.eventos+'</td>'+
+      '<td style="text-align:center">'+Object.keys(g.equipes).length+'</td>'+
+      '<td style="text-align:center">'+g.vitimas+'</td>'+
+      '<td>'+niveisTxt+'</td></tr>';
+  }).join('');
+  el.innerHTML = '<h3 style="margin-top:0">Resumo por tipo</h3>'+
+    '<div style="font-size:13px;color:var(--sub);margin-bottom:8px">Total: '+totalEventos+' evento(s) · '+Object.keys(todasEquipes).length+' equipe(s) distinta(s) envolvida(s) · '+totalVitimas+' vítima(s)</div>'+
+    '<table><thead><tr><th>Tipo</th><th>Qtd. eventos</th><th>Qtd. equipes</th><th>Vítimas</th><th>Por nível</th></tr></thead>'+
+    '<tbody>'+linhasHtml+'</tbody></table>';
+});
 document.getElementById('btnGerarRelatorio').addEventListener('click', function(){
   var linhasDados = linhasParaRelatorio();
   var totalVitimas = linhasDados.reduce(function(acc,l){ return acc + (l.ocorrencia.vitimas&&l.ocorrencia.vitimas.quantidade?l.ocorrencia.vitimas.quantidade:0); },0);

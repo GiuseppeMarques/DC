@@ -88,6 +88,7 @@
   <header>
     <h1 id="hTitle">🚨 Eventos Campo</h1>
     <div class="sub" id="hSub">Equipe: —</div>
+    <div style="font-size:10px;color:var(--sub);opacity:.8">v18 · 21/08/2026</div>
   </header>
   <main>
 
@@ -872,7 +873,11 @@ document.getElementById('btnRotaStart').addEventListener('click', function(){
     rotaPolyline.addLatLng(ll);
     document.getElementById('rotaDistancia').textContent = (calcularDistanciaTotal(rotaAtual.pontos)/1000).toFixed(2)+' km';
     renderRadarProximos(ll[0], ll[1]);
-  }, function(err){}, {enableHighAccuracy:true, maximumAge:5000});
+  }, function(err){
+    var msg = err && err.code===1 ? 'Permissão de GPS negada' : err && err.code===2 ? 'Sinal de GPS indisponível' : err && err.code===3 ? 'GPS demorou demais pra responder' : 'Erro no GPS';
+    toast('⚠️ '+msg+' — a rota pode ficar incompleta');
+    document.getElementById('rotaStatusTxt').textContent = '⚠️ '+msg+' — gravando mesmo assim';
+  }, {enableHighAccuracy:true, maximumAge:5000});
   rotaTimerInterval = setInterval(function(){
     document.getElementById('rotaTempo').textContent = fmtTempoDecorrido(Date.now() - new Date(rotaAtual.inicioEm).getTime());
   }, 1000);
@@ -886,6 +891,7 @@ document.getElementById('btnRotaStart').addEventListener('click', function(){
 document.getElementById('btnRotaStop').addEventListener('click', function(){
   if(rotaWatchId!=null) navigator.geolocation.clearWatch(rotaWatchId);
   if(rotaTimerInterval) clearInterval(rotaTimerInterval);
+  var qtdPontos = rotaAtual ? rotaAtual.pontos.length : 0;
   if(rotaAtual){ rotaAtual.fimEm = nowISO(); db.trajetorias.push(rotaAtual); saveDB(db); }
   rotaAtual = null; rotaWatchId = null; rotaTimerInterval = null; rotaPolyline = null;
   document.getElementById('btnRotaStart').style.display='block';
@@ -893,7 +899,12 @@ document.getElementById('btnRotaStop').addEventListener('click', function(){
   document.getElementById('btnRotaCriarEvento').style.display='none';
   document.getElementById('rotaRadarCard').style.display='none';
   document.getElementById('rotaInfoBox').style.display='none';
-  document.getElementById('rotaStatusTxt').textContent = 'Rota salva';
+  if(qtdPontos<2){
+    document.getElementById('rotaStatusTxt').textContent = '⚠️ Rota salva com só '+qtdPontos+' ponto(s) — GPS pode ter falhado, ela pode não aparecer no mapa';
+    toast('⚠️ Rota gravada com poucos pontos de GPS');
+  } else {
+    document.getElementById('rotaStatusTxt').textContent = 'Rota salva ('+qtdPontos+' pontos)';
+  }
   renderMapa();
 });
 
