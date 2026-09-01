@@ -90,7 +90,7 @@
 <div id="app">
   <aside>
     <h1>🚨 Eventos Quartel</h1>
-    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v32 · 01/09/2026</div>
+    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v33 · 01/09/2026</div>
     <button data-v="mapa" class="on">🗺️ Mapa</button>
     <button data-v="ocorrencias">📋 Ocorrências</button>
     <button data-v="equipes">👥 Equipes</button>
@@ -1225,7 +1225,7 @@ function abrirOccModal(id){
     '</div>'+
     (duplicatasIds.length ? '<h3 class="sec">🔁 Duplicatas mescladas aqui</h3>'+duplicatasHtml : '')+
     '<h3 class="sec">Empenhos</h3>'+
-    '<button type="button" class="btn sm" id="btnAtribuirEquipeOcc" style="margin-bottom:8px">👥 Atribuir equipe</button>'+
+    (o.eventoId===db.eventoAtivoId ? '<button type="button" class="btn sm" id="btnAtribuirEquipeOcc" style="margin-bottom:8px">👥 Atribuir equipe</button>' : '<div style="font-size:12px;color:var(--sub);margin-bottom:8px">🔒 Evento encerrado — não é possível empenhar equipe</div>')+
     empHtml+
     '<h3 class="sec">Histórico</h3>'+histHtml;
 
@@ -1290,7 +1290,8 @@ function abrirOccModal(id){
     alvo.vinculadas = alvo.vinculadas||[]; if(alvo.vinculadas.indexOf(o.id)<0) alvo.vinculadas.push(o.id);
     saveDB(db); toast('Vinculada ✅'); abrirOccModal(id);
   });
-  document.getElementById('btnAtribuirEquipeOcc').addEventListener('click', function(){
+  var btnAtribuirOcc = document.getElementById('btnAtribuirEquipeOcc');
+  if(btnAtribuirOcc) btnAtribuirOcc.addEventListener('click', function(){
     abrirEquipeModal(o.id, 'atribuir', null);
   });
   document.getElementById('btnMarcarPontoObservacao').addEventListener('click', function(){
@@ -1371,6 +1372,7 @@ function renderMissoesBoard(){
 }
 function abrirEquipeModal(ocId, modo, equipeAntigaNome){
   var o = db.ocorrencias.find(function(x){return x.id===ocId;});
+  if(!o || o.eventoId!==db.eventoAtivoId){ toast('Esta ocorrência é de um evento já encerrado — não é possível empenhar equipe nela'); return; }
   var equipesDisponiveis = equipesDoEventoAtivo();
   if(!equipesDisponiveis.length){ toast('Cadastre uma equipe primeiro'); return; }
   var body = document.getElementById('modalBody');
@@ -1473,7 +1475,7 @@ document.getElementById('btnSalvarEquipe').addEventListener('click', function(){
   document.querySelectorAll('.capsel').forEach(function(s){
     if(s.value!=='-1') caps.push({tipo:s.dataset.tipo, riscoMaximo:parseInt(s.value)});
   });
-  var existente = db.equipes.find(function(e){return e.nome===nome;});
+  var existente = equipesDoEventoAtivo().find(function(e){return e.nome===nome;});
   var membros = document.getElementById('fEqMembros').value.split('\n').filter(Boolean).map(function(l){return {nome:l.trim()};});
   if(existente){
     existente.membros = membros; existente.viatura = document.getElementById('fEqViatura').value; existente.capacidades = caps;
