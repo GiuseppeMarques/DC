@@ -90,7 +90,7 @@
 <div id="app">
   <aside>
     <h1>🚨 Eventos Quartel</h1>
-    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v33 · 01/09/2026</div>
+    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v34 · 01/09/2026</div>
     <button data-v="mapa" class="on">🗺️ Mapa</button>
     <button data-v="ocorrencias">📋 Ocorrências</button>
     <button data-v="equipes">👥 Equipes</button>
@@ -379,7 +379,9 @@ function equipesDoEventoAtivo(){
 var mapaEventoConsulta = null; // id de um evento arquivado sendo visualizado no mapa (não persiste, só sessão)
 function ocorrenciasParaMapa(){
   var alvo = mapaEventoConsulta || db.eventoAtivoId;
-  return db.ocorrencias.filter(function(o){ return o.eventoId===alvo; });
+  var doEvento = db.ocorrencias.filter(function(o){ return o.eventoId===alvo; });
+  var observacaoDeOutros = db.ocorrencias.filter(function(o){ return o.pontoObservacao && o.eventoId!==alvo; });
+  return doEvento.concat(observacaoDeOutros);
 }
 function equipesParaMapa(){
   var alvo = mapaEventoConsulta || db.eventoAtivoId;
@@ -802,7 +804,7 @@ function renderMapa(){
   ocorrenciasParaMapa().forEach(function(o){
     if(o.lat==null) return;
     if(o.duplicadaDe) return;
-    if(mapaFiltro.resolvidas==='ocultar' && o.risco===0 && mapaFiltro.risco==='todos') return;
+    if(mapaFiltro.resolvidas==='ocultar' && o.risco===0 && mapaFiltro.risco==='todos' && !o.pontoObservacao) return;
     if(mapaFiltro.tipo!=='todos' && o.tipo!==mapaFiltro.tipo) return;
     if(mapaFiltro.risco!=='todos' && String(o.risco)!==mapaFiltro.risco) return;
     var equipesAtivas = (o.empenhos||[]).filter(function(e){return e.status!=='encerrado';}).map(function(e){return e.equipeNome;});
@@ -811,17 +813,20 @@ function renderMapa(){
     var temMissao = equipesAtivas.length>0;
     var html = '<div style="position:relative;width:30px;height:30px">'+
       '<div style="font-size:22px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));'+
-        (temMissao?'background:#fff;border-radius:50%;outline:3px solid #3B82F6;width:26px;height:26px;display:flex;align-items:center;justify-content:center;':'')+'">'+tipoInfo(o.tipo).ic+'</div>'+
+        (temMissao?'background:#fff;border-radius:50%;outline:3px solid #3B82F6;width:26px;height:26px;display:flex;align-items:center;justify-content:center;':'')+
+        (o.pontoObservacao?'opacity:.85;outline:2px dashed #A855F7;border-radius:50%;width:26px;height:26px;display:flex;align-items:center;justify-content:center;':'')+'">'+tipoInfo(o.tipo).ic+'</div>'+
       '<div style="position:absolute;top:-4px;right:-4px;background:'+RISCO_COR[o.risco]+';color:#fff;font-size:10px;font-weight:800;'+
         'border-radius:50%;width:16px;height:16px;display:flex;align-items:center;justify-content:center;border:2px solid #fff;">'+o.risco+'</div>'+
+      (o.pontoObservacao ? '<div style="position:absolute;bottom:-4px;left:-4px;font-size:12px;filter:drop-shadow(0 1px 1px rgba(0,0,0,.6))">📌</div>' : '')+
       '</div>';
     var ic = L.divIcon({html:html, className:'', iconSize:[30,30]});
     var m = L.marker([o.lat,o.lng],{icon:ic}).addTo(mapLayer);
-    m.bindPopup('<b>'+tipoInfo(o.tipo).l+'</b><br>Risco: '+o.risco+' — '+RISCO_LABEL[o.risco]+
+    m.bindPopup('<b>'+tipoInfo(o.tipo).l+'</b>'+(o.pontoObservacao?' <span class="badge" style="background:#A855F7">📌 Ponto de observação</span>':'')+
+      '<br>Risco: '+o.risco+' — '+RISCO_LABEL[o.risco]+
       (o.observacao?'<br>'+o.observacao:'')+
       (temMissao?'<br>👥 '+equipesAtivas.join(', '):'<br><i>Sem equipe</i>')+
       '<br><a href="#" onclick="abrirOccModal(\''+o.id+'\');return false;">Abrir</a>'+
-      ' · <a href="#" onclick="abrirAtribuirEquipe(\''+o.id+'\');return false;">👥 Escalar equipe</a>');
+      (o.pontoObservacao ? '' : ' · <a href="#" onclick="abrirAtribuirEquipe(\''+o.id+'\');return false;">👥 Escalar equipe</a>'));
   });
   (db.trajetorias||[]).forEach(function(tr){
     if(mapaFiltro.rotas==='nenhuma') return;
@@ -1217,7 +1222,9 @@ function abrirOccModal(id){
     '<label class="lbl">Obs. vítimas / via</label><textarea id="mVitObs">'+((o.vitimas.observacao||'')+(o.viaObstruida.observacao?(' | '+o.viaObstruida.observacao):''))+'</textarea>'+
     '<label class="lbl">Recursos necessários</label><div id="mRecTags">'+recTags+'</div>'+
     '<button class="btn primary" id="btnSalvarOcc" style="margin-top:10px">💾 Salvar / Reativar</button>'+
-    '<button type="button" class="btn sm" id="btnMarcarPontoObservacao" style="margin-top:8px">📌 Marcar como ponto de observação</button>'+
+    (o.pontoObservacao ?
+      '<button type="button" class="btn sm" id="btnTransformarAtiva" style="margin-top:8px;background:var(--acc)">🔄 Transformar em ocorrência ativa</button>' :
+      '<button type="button" class="btn sm" id="btnMarcarPontoObservacao" style="margin-top:8px">📌 Marcar como ponto de observação</button>')+
     '<h3 class="sec">🔗 Ocorrências vinculadas</h3>'+vinculadasHtml+
     '<div style="display:flex;gap:6px;margin-top:8px">'+
       '<select id="mVincularSel" style="flex:1"><option value="">Selecione uma ocorrência…</option>'+vincularOptsHtml+'</select>'+
@@ -1225,7 +1232,8 @@ function abrirOccModal(id){
     '</div>'+
     (duplicatasIds.length ? '<h3 class="sec">🔁 Duplicatas mescladas aqui</h3>'+duplicatasHtml : '')+
     '<h3 class="sec">Empenhos</h3>'+
-    (o.eventoId===db.eventoAtivoId ? '<button type="button" class="btn sm" id="btnAtribuirEquipeOcc" style="margin-bottom:8px">👥 Atribuir equipe</button>' : '<div style="font-size:12px;color:var(--sub);margin-bottom:8px">🔒 Evento encerrado — não é possível empenhar equipe</div>')+
+    (o.pontoObservacao ? '<div style="font-size:12px;color:var(--sub);margin-bottom:8px">📌 Ponto de observação — transforme em ocorrência ativa pra poder empenhar equipe</div>' :
+     o.eventoId===db.eventoAtivoId ? '<button type="button" class="btn sm" id="btnAtribuirEquipeOcc" style="margin-bottom:8px">👥 Atribuir equipe</button>' : '<div style="font-size:12px;color:var(--sub);margin-bottom:8px">🔒 Evento encerrado — não é possível empenhar equipe</div>')+
     empHtml+
     '<h3 class="sec">Histórico</h3>'+histHtml;
 
@@ -1294,16 +1302,24 @@ function abrirOccModal(id){
   if(btnAtribuirOcc) btnAtribuirOcc.addEventListener('click', function(){
     abrirEquipeModal(o.id, 'atribuir', null);
   });
-  document.getElementById('btnMarcarPontoObservacao').addEventListener('click', function(){
+  var btnMarcarPO = document.getElementById('btnMarcarPontoObservacao');
+  if(btnMarcarPO) btnMarcarPO.addEventListener('click', function(){
     if(o.lat==null){ toast('Esta ocorrência não tem localização definida'); return; }
-    var nomeSugerido = tipoInfo(o.tipo).l+(o.observacao?' — '+o.observacao.slice(0,40):'');
-    var nome = prompt('Nome do ponto de observação:', nomeSugerido);
-    if(nome===null) return;
-    db.pontosReferencia = db.pontosReferencia||[];
-    db.pontosReferencia.push({ id: uid('pref'), tipo:'observacao', nome: nome.trim()||nomeSugerido,
-      lat:o.lat, lng:o.lng, criadoEm: nowISO(), origem:'quartel', ocorrenciaOrigemId:o.id });
-    saveDB(db); renderMapa();
-    toast('Marcado como ponto de observação ✅ — fica permanente, não é afetado por encerrar o evento');
+    o.pontoObservacao = true;
+    o.atualizadoEm = nowISO();
+    o.historico.push({dataHora:o.atualizadoEm, risco:o.risco, observacao:'📌 Marcada como ponto de observação', autor:'quartel', origem:'quartel'});
+    saveDB(db); renderMapa(); abrirOccModal(o.id);
+    toast('Marcada como ponto de observação ✅ — fica permanente no mapa, mesmo após encerrar o evento');
+  });
+  var btnTransformar = document.getElementById('btnTransformarAtiva');
+  if(btnTransformar) btnTransformar.addEventListener('click', function(){
+    if(!db.eventoAtivoId){ toast('Inicie um evento primeiro (aba Eventos) antes de transformar em ocorrência ativa'); return; }
+    o.pontoObservacao = false;
+    o.eventoId = db.eventoAtivoId;
+    o.atualizadoEm = nowISO();
+    o.historico.push({dataHora:o.atualizadoEm, risco:o.risco, observacao:'🔄 Transformada de volta em ocorrência ativa', autor:'quartel', origem:'quartel'});
+    saveDB(db); renderMapa(); renderTabelaOcorrencias(); abrirOccModal(o.id);
+    toast('Transformada em ocorrência ativa ✅');
   });
   document.getElementById('btnSalvarOcc').addEventListener('click', function(){
     var agora = nowISO();
@@ -1373,6 +1389,7 @@ function renderMissoesBoard(){
 function abrirEquipeModal(ocId, modo, equipeAntigaNome){
   var o = db.ocorrencias.find(function(x){return x.id===ocId;});
   if(!o || o.eventoId!==db.eventoAtivoId){ toast('Esta ocorrência é de um evento já encerrado — não é possível empenhar equipe nela'); return; }
+  if(o.pontoObservacao){ toast('Isto é um ponto de observação — transforme em ocorrência ativa primeiro'); return; }
   var equipesDisponiveis = equipesDoEventoAtivo();
   if(!equipesDisponiveis.length){ toast('Cadastre uma equipe primeiro'); return; }
   var body = document.getElementById('modalBody');
