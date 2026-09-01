@@ -90,7 +90,7 @@
 <div id="app">
   <aside>
     <h1>🚨 Eventos Quartel</h1>
-    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v31 · 01/09/2026</div>
+    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v32 · 01/09/2026</div>
     <button data-v="mapa" class="on">🗺️ Mapa</button>
     <button data-v="ocorrencias">📋 Ocorrências</button>
     <button data-v="equipes">👥 Equipes</button>
@@ -105,6 +105,7 @@
     <!-- MAPA -->
     <div class="view on" id="v-mapa">
       <h2 class="pagetitle">Mapa de ocorrências</h2>
+      <div id="bannerConsultaEvento"></div>
       <div class="card" style="margin-bottom:12px">
         <label class="lbl">🔍 Criar ocorrência por endereço</label>
         <div style="display:flex;gap:6px">
@@ -375,6 +376,15 @@ function ocorrenciasDoEventoAtivo(){
 function equipesDoEventoAtivo(){
   return db.equipes.filter(function(e){ return e.eventoId===db.eventoAtivoId; });
 }
+var mapaEventoConsulta = null; // id de um evento arquivado sendo visualizado no mapa (não persiste, só sessão)
+function ocorrenciasParaMapa(){
+  var alvo = mapaEventoConsulta || db.eventoAtivoId;
+  return db.ocorrencias.filter(function(o){ return o.eventoId===alvo; });
+}
+function equipesParaMapa(){
+  var alvo = mapaEventoConsulta || db.eventoAtivoId;
+  return db.equipes.filter(function(e){ return e.eventoId===alvo; });
+}
 function contagemDoEvento(eventoId){
   return {
     ocorrencias: db.ocorrencias.filter(function(o){return o.eventoId===eventoId;}).length,
@@ -400,6 +410,7 @@ function renderEventosView(){
       if(!confirm('Encerrar o evento "'+ativo.nome+'"?\n\nAs ocorrências e equipes atuais ficam arquivadas nele (nada é apagado) e as telas principais ficam vazias até você iniciar um novo evento.')) return;
       ativo.dataEncerramento = nowISO();
       db.eventoAtivoId = null;
+      mapaEventoConsulta = null;
       saveDB(db);
       renderEventosView(); renderMapa(); renderTabelaOcorrencias(); renderEquipesList(); renderMissoesBoard(); buildMapaFiltroEquipeSelects();
       toast('Evento encerrado e arquivado ✅');
@@ -417,6 +428,7 @@ function renderEventosView(){
       var novo = { id: uid('evt'), nome:nome, dataInicial:agora, dataEncerramento:null, criadoEm:agora };
       db.eventos.push(novo);
       db.eventoAtivoId = novo.id;
+      mapaEventoConsulta = null;
       saveDB(db);
       renderEventosView(); renderMapa(); renderTabelaOcorrencias(); renderEquipesList(); renderMissoesBoard(); buildMapaFiltroEquipeSelects();
       toast('Evento "'+nome+'" iniciado ✅');
@@ -428,9 +440,16 @@ function renderEventosView(){
     var c = contagemDoEvento(ev.id);
     return '<div class="histitem"><b>'+ev.nome+'</b><br>'+
       fmtData(ev.dataInicial)+' até '+fmtData(ev.dataEncerramento)+' — '+c.ocorrencias+' ocorrência(s), '+c.equipes+' equipe(s)'+
-      '<br><span style="font-size:11px;color:var(--sub)">Consulte no Relatório, selecionando este evento no filtro.</span></div>';
+      '<div style="margin-top:6px;display:flex;gap:6px">'+
+      '<button class="btn sm" onclick="verEventoNoMapa(\''+ev.id+'\')">🗺️ Ver no mapa</button>'+
+      '<span style="font-size:11px;color:var(--sub);align-self:center">Ou consulte no Relatório, selecionando este evento no filtro.</span>'+
+      '</div></div>';
   }).join('') : '<div style="color:var(--sub);font-size:12px">Nenhum evento encerrado ainda</div>';
 }
+window.verEventoNoMapa = function(eventoId){
+  mapaEventoConsulta = eventoId;
+  document.querySelector('aside button[data-v="mapa"]').click();
+};
 function uid(p){ return p+'_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function nowISO(){ return new Date().toISOString(); }
 function fmtData(iso){ if(!iso) return '—'; var d=new Date(iso); function p(n){return (n<10?'0':'')+n;}
@@ -768,8 +787,19 @@ document.getElementById('btnToggleMapasOffline').addEventListener('click', funct
 buildMapaFiltroTipo(); buildMapaFiltroRisco(); buildMapaFiltroEquipeSelects();
 
 function renderMapa(){
+  var banner = document.getElementById('bannerConsultaEvento');
+  if(mapaEventoConsulta){
+    var evConsulta = (db.eventos||[]).find(function(ev){return ev.id===mapaEventoConsulta;});
+    banner.innerHTML = '<div class="card" style="background:#1E3A5F;border:1px solid #3B82F6;margin-bottom:12px">'+
+      '📖 Visualizando evento arquivado: <b>'+(evConsulta?evConsulta.nome:'—')+'</b> (somente consulta — não é possível criar ocorrências aqui)'+
+      ' <button class="btn sm" id="btnSairConsultaEvento" style="margin-left:8px">✖️ Voltar ao evento ativo</button></div>';
+    var btnSair = document.getElementById('btnSairConsultaEvento');
+    if(btnSair) btnSair.addEventListener('click', function(){ mapaEventoConsulta=null; renderMapa(); });
+  } else {
+    banner.innerHTML = '';
+  }
   mapLayer.clearLayers();
-  ocorrenciasDoEventoAtivo().forEach(function(o){
+  ocorrenciasParaMapa().forEach(function(o){
     if(o.lat==null) return;
     if(o.duplicadaDe) return;
     if(mapaFiltro.resolvidas==='ocultar' && o.risco===0 && mapaFiltro.risco==='todos') return;
@@ -805,7 +835,7 @@ function renderMapa(){
         .bindTooltip('🧭 '+(tr.equipeNome||'equipe')+' — rota com só 1 ponto (GPS falhou)');
     }
   });
-  equipesDoEventoAtivo().forEach(function(eq){
+  equipesParaMapa().forEach(function(eq){
     if(eq.ultimaPosicao && eq.ultimaPosicao.lat!=null){
       var ic = L.divIcon({html:'<div style="font-size:20px">🚒</div>',className:'',iconSize:[24,24]});
       L.marker([eq.ultimaPosicao.lat, eq.ultimaPosicao.lng],{icon:ic}).addTo(mapLayer)
@@ -878,6 +908,7 @@ function abrirNovoPontoModal(lat,lng){
 }
 map.on('click', function(e){
   if(modoMarcarPonto){ modoMarcarPonto = false; abrirNovoPontoModal(e.latlng.lat, e.latlng.lng); return; }
+  if(mapaEventoConsulta){ toast('Modo consulta — volte ao evento ativo pra criar ocorrências'); return; }
   novaOcorrenciaNoMapa(e.latlng.lat, e.latlng.lng);
 });
 
@@ -950,8 +981,10 @@ document.getElementById('btnBuscarEndereco').addEventListener('click', function(
     var ic = L.divIcon({html:'<div style="font-size:26px">📍</div>', className:'', iconSize:[30,30]});
     marcadorBuscaEndereco = L.marker([info.lat, info.lng], {icon:ic}).addTo(map);
     resEl.innerHTML = '<div style="color:var(--sub)">'+info.nomeCompleto+'</div>'+
-      '<button class="btn sm primary" id="btnConfirmarCriarAqui" style="margin-top:6px">✅ Criar ocorrência aqui</button>';
-    document.getElementById('btnConfirmarCriarAqui').addEventListener('click', function(){
+      (mapaEventoConsulta ? '<div style="color:var(--amar);font-size:12px;margin-top:4px">Modo consulta ativo — volte ao evento ativo pra criar ocorrências</div>' :
+      '<button class="btn sm primary" id="btnConfirmarCriarAqui" style="margin-top:6px">✅ Criar ocorrência aqui</button>');
+    var btnConfirmarCriar = document.getElementById('btnConfirmarCriarAqui');
+    if(btnConfirmarCriar) btnConfirmarCriar.addEventListener('click', function(){
       if(marcadorBuscaEndereco){ map.removeLayer(marcadorBuscaEndereco); marcadorBuscaEndereco=null; }
       resEl.innerHTML = '';
       document.getElementById('fBuscarEndereco').value = '';
