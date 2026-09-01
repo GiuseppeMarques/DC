@@ -90,7 +90,7 @@
 <div id="app">
   <aside>
     <h1>🚨 Eventos Quartel</h1>
-    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v30 · 01/09/2026</div>
+    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v31 · 01/09/2026</div>
     <button data-v="mapa" class="on">🗺️ Mapa</button>
     <button data-v="ocorrencias">📋 Ocorrências</button>
     <button data-v="equipes">👥 Equipes</button>
@@ -106,6 +106,12 @@
     <div class="view on" id="v-mapa">
       <h2 class="pagetitle">Mapa de ocorrências</h2>
       <div class="card" style="margin-bottom:12px">
+        <label class="lbl">🔍 Criar ocorrência por endereço</label>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="fBuscarEndereco" placeholder="Ex: Rua das Flores, 100, Blumenau, SC" style="flex:1;margin:0">
+          <button class="btn" id="btnBuscarEndereco" type="button">Buscar</button>
+        </div>
+        <div id="buscarEnderecoResultado" style="font-size:12px;margin-top:6px"></div>
         <div class="chiprow" id="mapaFiltroTipo"></div>
         <div class="chiprow" id="mapaFiltroRisco"></div>
         <div class="grid2">
@@ -925,11 +931,41 @@ function renderTabelaOcorrencias(){
   });
 }
 
-function novaOcorrenciaNoMapa(lat,lng){
+var marcadorBuscaEndereco = null;
+function buscarEnderecoGeo(endereco){
+  return fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q='+encodeURIComponent(endereco))
+    .then(function(r){return r.json();}).then(function(arr){
+      if(!arr.length) throw new Error('Endereço não encontrado');
+      return { nomeCompleto: arr[0].display_name, lat: parseFloat(arr[0].lat), lng: parseFloat(arr[0].lon) };
+    });
+}
+document.getElementById('btnBuscarEndereco').addEventListener('click', function(){
+  var endereco = document.getElementById('fBuscarEndereco').value.trim();
+  if(!endereco){ toast('Digite um endereço'); return; }
+  var resEl = document.getElementById('buscarEnderecoResultado');
+  resEl.textContent = 'Buscando...';
+  buscarEnderecoGeo(endereco).then(function(info){
+    map.setView([info.lat, info.lng], 17);
+    if(marcadorBuscaEndereco) map.removeLayer(marcadorBuscaEndereco);
+    var ic = L.divIcon({html:'<div style="font-size:26px">📍</div>', className:'', iconSize:[30,30]});
+    marcadorBuscaEndereco = L.marker([info.lat, info.lng], {icon:ic}).addTo(map);
+    resEl.innerHTML = '<div style="color:var(--sub)">'+info.nomeCompleto+'</div>'+
+      '<button class="btn sm primary" id="btnConfirmarCriarAqui" style="margin-top:6px">✅ Criar ocorrência aqui</button>';
+    document.getElementById('btnConfirmarCriarAqui').addEventListener('click', function(){
+      if(marcadorBuscaEndereco){ map.removeLayer(marcadorBuscaEndereco); marcadorBuscaEndereco=null; }
+      resEl.innerHTML = '';
+      document.getElementById('fBuscarEndereco').value = '';
+      novaOcorrenciaNoMapa(info.lat, info.lng, info.nomeCompleto);
+    });
+  }).catch(function(err){
+    resEl.innerHTML = '<span style="color:var(--verm)">Endereço não encontrado — tente ser mais específico (rua, número, cidade)</span>';
+  });
+});
+function novaOcorrenciaNoMapa(lat,lng,endereco){
   var agora = nowISO();
-  var o = { id: uid('oco'), tipo:'outro', lat:lat, lng:lng, risco:3, observacao:'', eventoId: db.eventoAtivoId,
+  var o = { id: uid('oco'), tipo:'outro', lat:lat, lng:lng, risco:3, observacao:'', endereco:endereco||'', eventoId: db.eventoAtivoId,
     vitimas:{quantidade:0,observacao:''}, viaObstruida:{obstruida:false,observacao:''},
-    recursosNecessarios:[], historico:[{dataHora:agora,risco:3,observacao:'Criada pelo Quartel',autor:'quartel',origem:'quartel'}],
+    recursosNecessarios:[], historico:[{dataHora:agora,risco:3,observacao:'Criada pelo Quartel'+(endereco?' — '+endereco:''),autor:'quartel',origem:'quartel'}],
     empenhos:[], criadoEm:agora, criadoPor:'quartel', origem:'quartel', atualizadoEm:agora, resolvidaEm:null };
   db.ocorrencias.push(o); saveDB(db); renderMapa();
   abrirOccModal(o.id);
