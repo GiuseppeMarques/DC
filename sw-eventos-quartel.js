@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eventos-quartel-v27';
+const CACHE_NAME = 'eventos-quartel-v28';
 
 self.addEventListener('install', function(e){
   self.skipWaiting();

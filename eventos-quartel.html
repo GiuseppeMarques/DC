@@ -90,7 +90,7 @@
 <div id="app">
   <aside>
     <h1>🚨 Eventos Quartel</h1>
-    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v27 · 01/09/2026</div>
+    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v28 · 01/09/2026</div>
     <button data-v="mapa" class="on">🗺️ Mapa</button>
     <button data-v="ocorrencias">📋 Ocorrências</button>
     <button data-v="equipes">👥 Equipes</button>
@@ -654,7 +654,7 @@ function buildMapaFiltroRisco(){
   });
 }
 function buildMapaFiltroEquipeSelects(){
-  var optsEq = '<option value="todos">Todas</option>'+db.equipes.map(function(e){return '<option value="'+e.nome+'">'+e.nome+'</option>';}).join('');
+  var optsEq = '<option value="todos">Todas</option><option value="__sem_equipe__">⚠️ Sem equipe</option>'+db.equipes.map(function(e){return '<option value="'+e.nome+'">'+e.nome+'</option>';}).join('');
   document.getElementById('mapaFiltroEquipe').innerHTML = optsEq;
   document.getElementById('mapaFiltroEquipe').value = mapaFiltro.equipe;
   document.getElementById('mapaFiltroRotas').innerHTML = '<option value="todas">Todas as equipes</option><option value="nenhuma">Nenhuma</option>'+
@@ -683,7 +683,8 @@ function renderMapa(){
     if(mapaFiltro.tipo!=='todos' && o.tipo!==mapaFiltro.tipo) return;
     if(mapaFiltro.risco!=='todos' && String(o.risco)!==mapaFiltro.risco) return;
     var equipesAtivas = (o.empenhos||[]).filter(function(e){return e.status!=='encerrado';}).map(function(e){return e.equipeNome;});
-    if(mapaFiltro.equipe!=='todos' && equipesAtivas.indexOf(mapaFiltro.equipe)<0) return;
+    if(mapaFiltro.equipe==='__sem_equipe__'){ if(equipesAtivas.length>0) return; }
+    else if(mapaFiltro.equipe!=='todos' && equipesAtivas.indexOf(mapaFiltro.equipe)<0) return;
     var temMissao = equipesAtivas.length>0;
     var html = '<div style="position:relative;width:30px;height:30px">'+
       '<div style="font-size:22px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6));'+
