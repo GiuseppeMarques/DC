@@ -90,7 +90,7 @@
 <div id="app">
   <aside>
     <h1>🚨 Eventos Quartel</h1>
-    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v34 · 01/09/2026</div>
+    <div style="font-size:11px;color:var(--sub);margin-top:-8px;margin-bottom:8px">v38 · 01/09/2026</div>
     <button data-v="mapa" class="on">🗺️ Mapa</button>
     <button data-v="ocorrencias">📋 Ocorrências</button>
     <button data-v="equipes">👥 Equipes</button>
@@ -99,6 +99,7 @@
     <button data-v="relatorio">📄 Relatório</button>
     <button data-v="rios">🌊 Cotas de rio</button>
     <button data-v="eventos">🗂️ Eventos</button>
+    <button data-v="busca">🔍 Busca</button>
   </aside>
   <main>
 
@@ -121,6 +122,7 @@
         </div>
         <div style="margin-top:10px"><label class="lbl">Pontos de referência (🏢)</label><select id="mapaFiltroPontosRef"><option value="mostrar">Mostrar</option><option value="ocultar">Ocultar</option></select></div>
         <div style="margin-top:10px"><label class="lbl">Ocorrências resolvidas</label><select id="mapaFiltroResolvidas"><option value="ocultar">Ocultar (padrão)</option><option value="mostrar">Mostrar</option></select></div>
+        <div id="legendaEquipesCores" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px"></div>
         <button class="btn sm" id="btnToggleMapasOffline" type="button" style="margin-top:10px">🗂️ Mapas offline</button>
         <div id="mapasOfflinePanel" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
           <label class="lbl">Nome do município/região</label>
@@ -177,6 +179,7 @@
           <label class="lbl">Nome</label><input type="text" id="fEqNome" placeholder="Ex: Resgate 1">
           <label class="lbl">Membros (um por linha)</label><textarea id="fEqMembros" placeholder="Nome — matrícula"></textarea>
           <label class="lbl">Viatura</label><input type="text" id="fEqViatura" placeholder="Ex: ABT-05">
+          <label class="lbl">Cor no mapa (rotas, posição)</label><input type="color" id="fEqCor" value="#FF8A3D" style="width:60px;height:36px;padding:2px;cursor:pointer">
           <h3 class="sec">Capacidade de atuação</h3>
           <div id="capList"></div>
           <button class="btn primary" id="btnSalvarEquipe">💾 Salvar equipe</button>
@@ -293,6 +296,45 @@
       </div>
     </div>
 
+    <!-- BUSCA -->
+    <div class="view" id="v-busca">
+      <h2 class="pagetitle">🔍 Busca</h2>
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">Área de busca</h3>
+        <div style="font-size:12px;color:var(--sub);margin-bottom:8px">Toque no mapa abaixo pra marcar os vértices da área (mínimo 3 pontos), depois clique em "Finalizar área".</div>
+        <button class="btn" id="btnDesenharArea" type="button">✏️ Desenhar área de busca</button>
+        <button class="btn primary" id="btnFinalizarArea" type="button" style="display:none">✅ Finalizar área</button>
+        <button class="btn" id="btnCancelarArea" type="button" style="display:none;background:var(--verm)">✖️ Cancelar</button>
+        <button class="btn" id="btnImportarKmlBtn" type="button">📂 Importar arquivo KML</button>
+        <input type="file" id="fileImportarKml" class="fileinput" accept=".kml">
+        <div id="desenharAreaStatus" style="font-size:12px;color:var(--sub);margin-top:6px"></div>
+      </div>
+      <div id="mapaBusca" style="height:340px;border-radius:12px;overflow:hidden;margin-bottom:12px"></div>
+      <div class="card">
+        <h3 class="sec" style="margin-top:0">Áreas de busca cadastradas</h3>
+        <div id="areasBuscaList"></div>
+      </div>
+      <div class="card" id="gerarRotaCard" style="display:none">
+        <h3 class="sec" style="margin-top:0">Gerar rota sugerida</h3>
+        <div id="gerarRotaAreaNome" style="font-size:13px;font-weight:600;margin-bottom:8px"></div>
+        <label class="lbl">Padrão</label>
+        <select id="fPadraoRota">
+          <option value="zigzag">🔀 Zigue-zague (varredura em faixas)</option>
+          <option value="espiral">🌀 Espiral (do centro pra fora)</option>
+          <option value="linha">📏 Linha (transecto único)</option>
+          <option value="perimetro">🔲 Perímetro (borda da área)</option>
+        </select>
+        <div id="espacamentoBox">
+          <label class="lbl">Espaçamento entre faixas (metros)</label>
+          <input type="number" id="fEspacamento" value="50" min="10">
+        </div>
+        <label class="lbl">Equipe destino (opcional)</label>
+        <select id="fEquipeRotaBusca"><option value="">— não atribuir —</option></select>
+        <button class="btn primary" id="btnGerarRotaBusca" style="margin-top:8px">🎯 Gerar rota</button>
+        <div id="gerarRotaResultado" style="font-size:12px;color:var(--sub);margin-top:8px"></div>
+      </div>
+    </div>
+
   </main>
 </div>
 
@@ -359,6 +401,7 @@ function loadDB(){
 function saveDB(db){ localStorage.setItem(DBKEY, JSON.stringify(db)); }
 var db = loadDB();
 db.riosMonitorados = db.riosMonitorados || [];
+db.areasBusca = db.areasBusca || [];
 function garantirEventos(dbAlvo){
   if(dbAlvo.eventos) return;
   var agora = new Date().toISOString();
@@ -694,6 +737,7 @@ document.querySelectorAll('aside button').forEach(function(b){
     if(b.dataset.v==='relatorio') { buildRelTipoFiltroChips(); popularSelectEventos(); }
     if(b.dataset.v==='rios') renderRiosList();
     if(b.dataset.v==='eventos') renderEventosView();
+    if(b.dataset.v==='busca'){ setTimeout(function(){ mapBusca.invalidateSize(); renderAreasBuscaList(); popularEquipeRotaBuscaSelect(); },50); }
   });
 });
 
@@ -800,6 +844,14 @@ function renderMapa(){
   } else {
     banner.innerHTML = '';
   }
+  var legendaEl = document.getElementById('legendaEquipesCores');
+  if(legendaEl){
+    var equipesComRota = equipesParaMapa().filter(function(eq){ return (db.trajetorias||[]).some(function(t){return t.equipeNome===eq.nome;}); });
+    legendaEl.innerHTML = equipesComRota.length ? equipesComRota.map(function(eq){
+      return '<span style="font-size:11px;color:var(--sub);display:flex;align-items:center;gap:4px">'+
+        '<span style="width:12px;height:12px;border-radius:3px;background:'+(eq.cor||'#FF8A3D')+';display:inline-block"></span>'+eq.nome+'</span>';
+    }).join('') : '';
+  }
   mapLayer.clearLayers();
   ocorrenciasParaMapa().forEach(function(o){
     if(o.lat==null) return;
@@ -828,11 +880,16 @@ function renderMapa(){
       '<br><a href="#" onclick="abrirOccModal(\''+o.id+'\');return false;">Abrir</a>'+
       (o.pontoObservacao ? '' : ' · <a href="#" onclick="abrirAtribuirEquipe(\''+o.id+'\');return false;">👥 Escalar equipe</a>'));
   });
+  function corDaEquipe(nomeEquipe){
+    var eq = db.equipes.find(function(e){return e.nome===nomeEquipe;});
+    return (eq && eq.cor) || '#FF8A3D';
+  }
   (db.trajetorias||[]).forEach(function(tr){
     if(mapaFiltro.rotas==='nenhuma') return;
     if(mapaFiltro.rotas!=='todas' && tr.equipeNome!==mapaFiltro.rotas) return;
+    var corTr = corDaEquipe(tr.equipeNome);
     if(tr.pontos && tr.pontos.length>1){
-      L.polyline(tr.pontos.map(function(p){return [p.lat,p.lng];}), {color:'#FF8A3D', weight:3, opacity:.8})
+      L.polyline(tr.pontos.map(function(p){return [p.lat,p.lng];}), {color:corTr, weight:3, opacity:.85})
         .addTo(mapLayer).bindTooltip(tr.equipeNome||'equipe');
     } else if(tr.pontos && tr.pontos.length===1){
       var icRota = L.divIcon({html:'<div style="font-size:16px" title="Rota com só 1 ponto (GPS falhou)">📍</div>',className:'',iconSize:[18,18]});
@@ -842,7 +899,7 @@ function renderMapa(){
   });
   equipesParaMapa().forEach(function(eq){
     if(eq.ultimaPosicao && eq.ultimaPosicao.lat!=null){
-      var ic = L.divIcon({html:'<div style="font-size:20px">🚒</div>',className:'',iconSize:[24,24]});
+      var ic = L.divIcon({html:'<div style="font-size:20px;filter:drop-shadow(0 0 3px '+(eq.cor||'#FF8A3D')+')">🚒</div>',className:'',iconSize:[24,24]});
       L.marker([eq.ultimaPosicao.lat, eq.ultimaPosicao.lng],{icon:ic}).addTo(mapLayer)
         .bindTooltip(eq.nome+' — últ. atualização '+fmtData(eq.ultimaPosicao.dataHora));
     }
@@ -1485,6 +1542,12 @@ function buildCapList(caps){
   }).join('');
 }
 buildCapList([]);
+var PALETA_CORES_EQUIPE = ['#FF8A3D','#3B82F6','#22C55E','#EAB308','#EC4899','#8B5CF6','#06B6D4','#EF4444','#84CC16','#F97316'];
+function proximaCorDisponivel(){
+  var usadas = db.equipes.map(function(e){return e.cor;});
+  var livre = PALETA_CORES_EQUIPE.find(function(c){return usadas.indexOf(c)<0;});
+  return livre || PALETA_CORES_EQUIPE[db.equipes.length % PALETA_CORES_EQUIPE.length];
+}
 document.getElementById('btnSalvarEquipe').addEventListener('click', function(){
   var nome = document.getElementById('fEqNome').value.trim();
   if(!nome){ toast('Informe o nome da equipe'); return; }
@@ -1494,15 +1557,17 @@ document.getElementById('btnSalvarEquipe').addEventListener('click', function(){
   });
   var existente = equipesDoEventoAtivo().find(function(e){return e.nome===nome;});
   var membros = document.getElementById('fEqMembros').value.split('\n').filter(Boolean).map(function(l){return {nome:l.trim()};});
+  var cor = document.getElementById('fEqCor').value;
   if(existente){
-    existente.membros = membros; existente.viatura = document.getElementById('fEqViatura').value; existente.capacidades = caps;
+    existente.membros = membros; existente.viatura = document.getElementById('fEqViatura').value; existente.capacidades = caps; existente.cor = cor;
   } else {
     db.equipes.push({ id:uid('eq'), nome:nome, membros:membros, viatura:document.getElementById('fEqViatura').value,
-      capacidades:caps, status:'disponivel', ultimaPosicao:{lat:null,lng:null,dataHora:null}, ocorrenciaAtualId:null, eventoId: db.eventoAtivoId });
+      capacidades:caps, status:'disponivel', ultimaPosicao:{lat:null,lng:null,dataHora:null}, ocorrenciaAtualId:null, eventoId: db.eventoAtivoId, cor:cor });
   }
   saveDB(db);
   document.getElementById('fEqNome').value=''; document.getElementById('fEqMembros').value=''; document.getElementById('fEqViatura').value='';
   buildCapList([]);
+  document.getElementById('fEqCor').value = proximaCorDisponivel();
   renderEquipesList(); buildMapaFiltroEquipeSelects(); toast('Equipe salva ✅');
 });
 function renderEquipesList(){
@@ -1511,7 +1576,7 @@ function renderEquipesList(){
   if(!lista.length){ el.innerHTML = '<div style="color:var(--sub);font-size:13px">Nenhuma equipe cadastrada</div>'; return; }
   el.innerHTML = lista.map(function(e){
     var capTxt = (e.capacidades||[]).map(function(c){return tipoInfo(c.tipo).ic+' até '+c.riscoMaximo;}).join(' · ') || 'sem capacidades definidas';
-    return '<div class="card" style="margin-bottom:10px;padding:12px">'+
+    return '<div class="card" style="margin-bottom:10px;padding:12px;border-left:4px solid '+(e.cor||'#FF8A3D')+'">'+
       '<b>'+e.nome+'</b> <span class="badge" style="background:'+(e.status==='disponivel'?'#34C759':'#3A3A3C')+'">'+e.status+'</span>'+
       '<div style="font-size:12px;color:var(--sub);margin-top:4px">Viatura: '+(e.viatura||'—')+'</div>'+
       '<div style="font-size:12px;color:var(--sub);margin-top:4px">'+capTxt+'</div>'+
@@ -1554,6 +1619,7 @@ window.editarEquipe = function(id){
   document.getElementById('fEqNome').value = e.nome;
   document.getElementById('fEqMembros').value = (e.membros||[]).map(function(m){return m.nome;}).join('\n');
   document.getElementById('fEqViatura').value = e.viatura||'';
+  document.getElementById('fEqCor').value = e.cor||'#FF8A3D';
   buildCapList(e.capacidades);
   window.scrollTo(0,0);
 };
@@ -1634,6 +1700,7 @@ document.getElementById('fileRestaurarBackup').addEventListener('change', functi
       if(!confirm('Isso vai SUBSTITUIR todos os dados atuais do Quartel pelos dados do backup (de '+fmtData(backup.geradoEm)+'). Essa ação não pode ser desfeita. Continuar?')) return;
       db = backup.dados;
       db.riosMonitorados = db.riosMonitorados || [];
+      db.areasBusca = db.areasBusca || [];
       garantirEventos(db);
       saveDB(db);
       document.getElementById('backupResumo').textContent = 'Restaurado backup de '+fmtData(backup.geradoEm)+' — '+db.ocorrencias.length+' ocorrências, '+db.equipes.length+' equipes.';
@@ -1987,6 +2054,12 @@ document.getElementById('fileImportar').addEventListener('change', function(e){
       db.trajetorias = (db.trajetorias||[]).concat((pacote.trajetorias||[]).filter(function(tr){
         return !db.trajetorias.some(function(t){return t.id===tr.id;});
       }));
+      var pontosNovos=0, pontosAtualizados=0;
+      db.pontosReferencia = db.pontosReferencia||[];
+      (pacote.pontosReferencia||[]).forEach(function(p){
+        var idx = db.pontosReferencia.findIndex(function(x){return x.id===p.id;});
+        if(idx>=0){ db.pontosReferencia[idx]=p; pontosAtualizados++; } else { db.pontosReferencia.push(p); pontosNovos++; }
+      });
       // atualiza última posição da equipe com base na trajetória mais recente importada
       (pacote.trajetorias||[]).forEach(function(tr){
         if(!tr.pontos || !tr.pontos.length) return;
@@ -1996,12 +2069,296 @@ document.getElementById('fileImportar').addEventListener('change', function(e){
       });
       saveDB(db);
       document.getElementById('importResumo').innerHTML =
-        'Importado: '+contador.novos+' novas, '+contador.atualizados+' mescladas (campo a campo, nada foi perdido)';
+        'Importado: '+contador.novos+' novas, '+contador.atualizados+' mescladas (campo a campo, nada foi perdido)'+
+        (pontosNovos||pontosAtualizados ? '<br>Pontos de referência: '+pontosNovos+' novos, '+pontosAtualizados+' atualizados' : '');
       renderMapa(); renderTabelaOcorrencias(); renderEquipesList(); buildMapaFiltroEquipeSelects();
       toast('Importação concluída ✅');
     }catch(err){ toast('Erro ao importar arquivo'); }
   };
   reader.readAsText(file);
+});
+
+// ════════════════════════════════════════
+// BUSCA — área de busca e geração de rotas de varredura
+// ════════════════════════════════════════
+var mapBusca = L.map('mapaBusca').setView([-27.5954,-48.5480], 13);
+new OfflineTileLayer('',{maxZoom:19}).addTo(mapBusca);
+var buscaLayer = L.layerGroup().addTo(mapBusca);
+var modoDesenharArea = false;
+var pontosAreaAtual = [];
+var poligonoDesenhoTemp = null;
+var marcadoresDesenhoTemp = [];
+
+function metrosParaLatLng(dx, dy, latRef, lngRef){
+  var R = 6371000;
+  var lat = latRef + (dy/R)*(180/Math.PI);
+  var lng = lngRef + (dx/(R*Math.cos(latRef*Math.PI/180)))*(180/Math.PI);
+  return {lat:lat, lng:lng};
+}
+function latLngParaMetros(lat, lng, latRef, lngRef){
+  var R = 6371000;
+  var dx = (lng-lngRef)*(Math.PI/180)*R*Math.cos(latRef*Math.PI/180);
+  var dy = (lat-latRef)*(Math.PI/180)*R;
+  return {x:dx, y:dy};
+}
+function pontoDentroPoligono(pt, poligono){
+  var x = pt.lng, y = pt.lat, dentro = false;
+  for(var i=0,j=poligono.length-1; i<poligono.length; j=i++){
+    var xi=poligono[i].lng, yi=poligono[i].lat, xj=poligono[j].lng, yj=poligono[j].lat;
+    var intersect = ((yi>y) !== (yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi);
+    if(intersect) dentro = !dentro;
+  }
+  return dentro;
+}
+function gerarZigZag(poligono, espacamentoM){
+  var lats=poligono.map(function(p){return p.lat;}), lngs=poligono.map(function(p){return p.lng;});
+  var latRef=lats.reduce(function(a,b){return a+b;},0)/lats.length;
+  var lngRef=lngs.reduce(function(a,b){return a+b;},0)/lngs.length;
+  var minLat=Math.min.apply(null,lats), maxLat=Math.max.apply(null,lats);
+  var minLng=Math.min.apply(null,lngs), maxLng=Math.max.apply(null,lngs);
+  var pontos=[], linhaIdx=0;
+  var yAtual = latLngParaMetros(minLat, lngRef, latRef, lngRef).y;
+  var yMax = latLngParaMetros(maxLat, lngRef, latRef, lngRef).y;
+  while(yAtual <= yMax){
+    var latAtual = metrosParaLatLng(0, yAtual, latRef, lngRef).lat;
+    var passosLng=100, segmentos=[], dentroAtual=false, inicioSeg=null, ultimoDentro=null;
+    for(var i=0;i<=passosLng;i++){
+      var lngAtual = minLng + (maxLng-minLng)*(i/passosLng);
+      var dentro = pontoDentroPoligono({lat:latAtual,lng:lngAtual}, poligono);
+      if(dentro){
+        if(!dentroAtual){ inicioSeg=lngAtual; dentroAtual=true; }
+        ultimoDentro=lngAtual;
+      } else if(dentroAtual){ segmentos.push([inicioSeg,ultimoDentro]); dentroAtual=false; }
+    }
+    if(dentroAtual) segmentos.push([inicioSeg,ultimoDentro]);
+    if(segmentos.length){
+      var maior = segmentos.reduce(function(a,b){ return (b[1]-b[0])>(a[1]-a[0])?b:a; });
+      var da = linhaIdx%2===0?maior[0]:maior[1];
+      var ate = linhaIdx%2===0?maior[1]:maior[0];
+      pontos.push({lat:latAtual,lng:da});
+      pontos.push({lat:latAtual,lng:ate});
+    }
+    yAtual += espacamentoM;
+    linhaIdx++;
+  }
+  return pontos;
+}
+function gerarEspiral(poligono, espacamentoM){
+  var lats=poligono.map(function(p){return p.lat;}), lngs=poligono.map(function(p){return p.lng;});
+  var latRef=lats.reduce(function(a,b){return a+b;},0)/lats.length;
+  var lngRef=lngs.reduce(function(a,b){return a+b;},0)/lngs.length;
+  var raioMax=0;
+  poligono.forEach(function(p){
+    var m = latLngParaMetros(p.lat,p.lng,latRef,lngRef);
+    var d = Math.sqrt(m.x*m.x+m.y*m.y);
+    if(d>raioMax) raioMax=d;
+  });
+  var pontos=[], passoAngulo=0.25, angulo=0, raio=0;
+  while(raio <= raioMax){
+    var x = raio*Math.cos(angulo), y = raio*Math.sin(angulo);
+    pontos.push(metrosParaLatLng(x,y,latRef,lngRef));
+    angulo += passoAngulo;
+    raio = (espacamentoM/(2*Math.PI)) * angulo;
+  }
+  return pontos;
+}
+function gerarLinhaBusca(poligono){
+  var maiorDist=0, ptA=poligono[0], ptB=poligono[0];
+  for(var i=0;i<poligono.length;i++){
+    for(var j=i+1;j<poligono.length;j++){
+      var d = distanciaMetros(poligono[i].lat,poligono[i].lng,poligono[j].lat,poligono[j].lng);
+      if(d>maiorDist){ maiorDist=d; ptA=poligono[i]; ptB=poligono[j]; }
+    }
+  }
+  return [ {lat:ptA.lat,lng:ptA.lng}, {lat:ptB.lat,lng:ptB.lng} ];
+}
+function gerarPerimetro(poligono){
+  return poligono.concat([poligono[0]]);
+}
+
+function renderBuscaLayer(){
+  buscaLayer.clearLayers();
+  (db.areasBusca||[]).forEach(function(area){
+    L.polygon(area.poligono.map(function(p){return [p.lat,p.lng];}), {color:'#A855F7', weight:2, fillOpacity:.12})
+      .addTo(buscaLayer).bindTooltip(area.nome);
+    if(area.rotaGerada && area.rotaGerada.length>1){
+      L.polyline(area.rotaGerada.map(function(p){return [p.lat,p.lng];}), {color:'#FF6B00', weight:3, dashArray:'6,4'})
+        .addTo(buscaLayer).bindTooltip('Rota sugerida ('+(area.padraoUsado||'')+') — '+area.nome);
+    }
+    var percursosReais = (db.trajetorias||[]).filter(function(t){ return t.origemAreaBuscaId===area.id && !t.sugerida; });
+    percursosReais.forEach(function(t){
+      if(t.pontos && t.pontos.length>1){
+        L.polyline(t.pontos.map(function(p){return [p.lat,p.lng];}), {color:'#22C55E', weight:3})
+          .addTo(buscaLayer).bindTooltip('✅ Percurso realizado por '+(t.equipeNome||'equipe')+' — '+area.nome);
+      }
+    });
+  });
+}
+function popularEquipeRotaBuscaSelect(){
+  var sel = document.getElementById('fEquipeRotaBusca');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">— não atribuir —</option>'+
+    equipesDoEventoAtivo().map(function(e){return '<option value="'+e.nome+'">'+e.nome+'</option>';}).join('');
+}
+function renderAreasBuscaList(){
+  renderBuscaLayer();
+  var el = document.getElementById('areasBuscaList');
+  if(!el) return;
+  var lista = db.areasBusca||[];
+  el.innerHTML = lista.length ? lista.map(function(a){
+    var percursosReais = (db.trajetorias||[]).filter(function(t){ return t.origemAreaBuscaId===a.id && !t.sugerida; });
+    return '<div class="histitem"><b>'+a.nome+'</b> — '+a.poligono.length+' vértices'+
+      (a.rotaGerada?' · rota gerada ('+a.padraoUsado+')':' · sem rota ainda')+
+      (percursosReais.length ? ' · ✅ '+percursosReais.length+' percurso(s) real(is) registrado(s)' : '')+
+      '<div style="margin-top:6px;display:flex;gap:6px">'+
+      '<button class="btn sm" onclick="abrirGerarRotaPara(\''+a.id+'\')">🎯 Gerar rota</button>'+
+      '<button class="btn sm" style="background:var(--verm)" onclick="excluirAreaBusca(\''+a.id+'\')">🗑️</button>'+
+      '</div></div>';
+  }).join('') : '<div style="color:var(--sub);font-size:12px">Nenhuma área de busca cadastrada ainda</div>';
+}
+window.excluirAreaBusca = function(id){
+  if(!confirm('Excluir esta área de busca?')) return;
+  db.areasBusca = db.areasBusca.filter(function(a){return a.id!==id;});
+  saveDB(db); renderAreasBuscaList();
+};
+var areaEmEdicaoId = null;
+window.abrirGerarRotaPara = function(id){
+  areaEmEdicaoId = id;
+  var area = db.areasBusca.find(function(a){return a.id===id;});
+  document.getElementById('gerarRotaAreaNome').textContent = '📍 '+area.nome;
+  document.getElementById('gerarRotaResultado').textContent = '';
+  popularEquipeRotaBuscaSelect();
+  document.getElementById('gerarRotaCard').style.display = 'block';
+  document.getElementById('gerarRotaCard').scrollIntoView({behavior:'smooth'});
+};
+document.getElementById('fPadraoRota').addEventListener('change', function(){
+  document.getElementById('espacamentoBox').style.display = (this.value==='linha'||this.value==='perimetro') ? 'none' : 'block';
+});
+document.getElementById('btnGerarRotaBusca').addEventListener('click', function(){
+  var area = db.areasBusca.find(function(a){return a.id===areaEmEdicaoId;});
+  if(!area) return;
+  var padrao = document.getElementById('fPadraoRota').value;
+  var espacamento = parseFloat(document.getElementById('fEspacamento').value) || 50;
+  var rota;
+  if(padrao==='zigzag') rota = gerarZigZag(area.poligono, espacamento);
+  else if(padrao==='espiral') rota = gerarEspiral(area.poligono, espacamento);
+  else if(padrao==='perimetro') rota = gerarPerimetro(area.poligono);
+  else rota = gerarLinhaBusca(area.poligono);
+  area.rotaGerada = rota;
+  area.padraoUsado = padrao;
+  var equipeDestino = document.getElementById('fEquipeRotaBusca').value;
+  if(equipeDestino){
+    db.trajetorias = db.trajetorias||[];
+    db.trajetorias.push({ id: uid('traj'), equipeNome: equipeDestino, inicioEm: nowISO(), fimEm: nowISO(),
+      pontos: rota.map(function(p){return {lat:p.lat, lng:p.lng, dataHora: nowISO()};}),
+      sugerida:true, origemAreaBuscaId: area.id, padraoUsado: padrao });
+  }
+  saveDB(db);
+  renderAreasBuscaList();
+  document.getElementById('gerarRotaResultado').innerHTML =
+    'Rota gerada com '+rota.length+' pontos ('+padrao+').'+
+    (equipeDestino ? '<br>Salva como rota sugerida pra <b>'+equipeDestino+'</b> — disponível pra exportar na aba Exportar/Importar, junto das outras rotas.' : '<br>Nenhuma equipe selecionada — a rota fica só visível no mapa aqui, não foi exportada.');
+  toast('Rota de busca gerada ✅');
+});
+document.getElementById('btnDesenharArea').addEventListener('click', function(){
+  modoDesenharArea = true;
+  pontosAreaAtual = [];
+  marcadoresDesenhoTemp.forEach(function(m){ mapBusca.removeLayer(m); });
+  marcadoresDesenhoTemp = [];
+  if(poligonoDesenhoTemp){ mapBusca.removeLayer(poligonoDesenhoTemp); poligonoDesenhoTemp=null; }
+  document.getElementById('btnDesenharArea').style.display = 'none';
+  document.getElementById('btnFinalizarArea').style.display = 'inline-block';
+  document.getElementById('btnCancelarArea').style.display = 'inline-block';
+  document.getElementById('desenharAreaStatus').textContent = '0 pontos marcados — toque no mapa';
+});
+document.getElementById('btnCancelarArea').addEventListener('click', function(){
+  modoDesenharArea = false;
+  pontosAreaAtual = [];
+  marcadoresDesenhoTemp.forEach(function(m){ mapBusca.removeLayer(m); });
+  marcadoresDesenhoTemp = [];
+  if(poligonoDesenhoTemp){ mapBusca.removeLayer(poligonoDesenhoTemp); poligonoDesenhoTemp=null; }
+  document.getElementById('btnDesenharArea').style.display = 'inline-block';
+  document.getElementById('btnFinalizarArea').style.display = 'none';
+  document.getElementById('btnCancelarArea').style.display = 'none';
+  document.getElementById('desenharAreaStatus').textContent = '';
+});
+document.getElementById('btnFinalizarArea').addEventListener('click', function(){
+  if(pontosAreaAtual.length<3){ toast('Marque pelo menos 3 pontos pra formar uma área'); return; }
+  var nome = prompt('Nome da área de busca:', 'Área de busca '+(db.areasBusca.length+1));
+  if(!nome){ return; }
+  db.areasBusca.push({ id: uid('area'), nome:nome.trim(), poligono: pontosAreaAtual.slice(), criadoEm: nowISO(), eventoId: db.eventoAtivoId });
+  saveDB(db);
+  modoDesenharArea = false;
+  pontosAreaAtual = [];
+  marcadoresDesenhoTemp.forEach(function(m){ mapBusca.removeLayer(m); });
+  marcadoresDesenhoTemp = [];
+  if(poligonoDesenhoTemp){ mapBusca.removeLayer(poligonoDesenhoTemp); poligonoDesenhoTemp=null; }
+  document.getElementById('btnDesenharArea').style.display = 'inline-block';
+  document.getElementById('btnFinalizarArea').style.display = 'none';
+  document.getElementById('btnCancelarArea').style.display = 'none';
+  document.getElementById('desenharAreaStatus').textContent = '';
+  renderAreasBuscaList();
+  toast('Área de busca criada ✅');
+});
+mapBusca.on('click', function(e){
+  if(!modoDesenharArea) return;
+  pontosAreaAtual.push({lat:e.latlng.lat, lng:e.latlng.lng});
+  var m = L.circleMarker(e.latlng, {radius:5, color:'#A855F7', fillColor:'#A855F7', fillOpacity:1}).addTo(mapBusca);
+  marcadoresDesenhoTemp.push(m);
+  if(poligonoDesenhoTemp) mapBusca.removeLayer(poligonoDesenhoTemp);
+  if(pontosAreaAtual.length>=2){
+    poligonoDesenhoTemp = L.polygon(pontosAreaAtual.map(function(p){return [p.lat,p.lng];}), {color:'#A855F7', weight:2, fillOpacity:.12}).addTo(mapBusca);
+  }
+  document.getElementById('desenharAreaStatus').textContent = pontosAreaAtual.length+' ponto(s) marcado(s)'+(pontosAreaAtual.length>=3?' — pode finalizar':' — marque pelo menos 3');
+});
+
+function parsearKML(texto){
+  var xml = new DOMParser().parseFromString(texto, 'text/xml');
+  var erro = xml.getElementsByTagName('parsererror');
+  if(erro.length) throw new Error('Arquivo KML inválido ou corrompido');
+  var poligonos = xml.getElementsByTagName('Polygon');
+  var linhas = xml.getElementsByTagName('LineString');
+  var coordsEl = null, tipo = null;
+  if(poligonos.length){
+    var lr = poligonos[0].getElementsByTagName('LinearRing')[0];
+    coordsEl = lr ? lr.getElementsByTagName('coordinates')[0] : null;
+    tipo = 'poligono';
+  }
+  if(!coordsEl && linhas.length){
+    coordsEl = linhas[0].getElementsByTagName('coordinates')[0];
+    tipo = 'linha';
+  }
+  if(!coordsEl) throw new Error('Nenhuma área (Polygon) ou rota (LineString) encontrada no arquivo KML');
+  var textoCoord = coordsEl.textContent.trim();
+  var pontos = textoCoord.split(/\s+/).filter(Boolean).map(function(tok){
+    var partes = tok.split(',');
+    return { lat: parseFloat(partes[1]), lng: parseFloat(partes[0]) };
+  }).filter(function(p){ return !isNaN(p.lat) && !isNaN(p.lng); });
+  var totalGeometrias = poligonos.length + linhas.length;
+  return { tipo: tipo, pontos: pontos, totalGeometrias: totalGeometrias };
+}
+document.getElementById('btnImportarKmlBtn').addEventListener('click', function(){ document.getElementById('fileImportarKml').click(); });
+document.getElementById('fileImportarKml').addEventListener('change', function(e){
+  var file = e.target.files && e.target.files[0]; if(!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev){
+    try{
+      var res = parsearKML(ev.target.result);
+      if(res.pontos.length<3){ toast('A geometria encontrada no KML tem poucos pontos pra virar uma área'); return; }
+      var nome = prompt('Nome da área importada:', file.name.replace('.kml',''));
+      if(!nome) return;
+      db.areasBusca.push({ id: uid('area'), nome:nome.trim(), poligono: res.pontos, criadoEm: nowISO(), eventoId: db.eventoAtivoId, origemKml:true });
+      saveDB(db);
+      renderAreasBuscaList();
+      var avisoMulti = res.totalGeometrias>1 ? ' (o arquivo tinha '+res.totalGeometrias+' geometrias — só a primeira foi importada)' : '';
+      toast('Área importada do KML ✅ — '+res.pontos.length+' pontos'+avisoMulti);
+      mapBusca.fitBounds(L.polygon(res.pontos.map(function(p){return [p.lat,p.lng];})).getBounds(), {padding:[30,30]});
+    }catch(err){
+      toast('Erro ao ler o KML: '+err.message);
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
 });
 
 // ════════════════════════════════════════
